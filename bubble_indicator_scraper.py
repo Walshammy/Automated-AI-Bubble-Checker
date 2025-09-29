@@ -38,6 +38,12 @@ class BubbleIndicatorScraper:
         # Master dataset files
         self.master_file = os.path.join(self.onedrive_dir, "bubble_indicators_dataset.xlsx")
         self.downloads_file = os.path.join(self.downloads_dir, "bubble_indicators_dataset.xlsx") if self.downloads_dir else None
+        
+        # Historical dataset file
+        self.historical_file = os.path.join(self.onedrive_dir, "bubble_indicators_historical.xlsx")
+        
+        # Combined dataset file (historical + current)
+        self.combined_file = os.path.join(self.onedrive_dir, "bubble_indicators_combined.xlsx")
 
         # Key stock tickers for tracking
         self.ai_stocks = {
@@ -151,6 +157,412 @@ class BubbleIndicatorScraper:
             pass
         
         return value
+
+    def get_historical_data(self, ticker, period="10y"):
+        """Get historical data for a ticker over specified period"""
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period=period)
+            return hist
+        except Exception as e:
+            self.logger.error(f"Error getting historical data for {ticker}: {e}")
+            return None
+
+    def create_combined_dataset(self):
+        """Create combined historical + current dataset"""
+        try:
+            self.logger.info("Creating combined historical + current dataset")
+            
+            # Get current data
+            current_data = self.collect_all_metrics()
+            current_df = pd.DataFrame([current_data])
+            
+            # Get historical data (last 10 years, monthly samples)
+            historical_data = []
+            
+            # Get S&P 500 historical data (monthly)
+            sp500_hist = self.get_historical_data("^GSPC", "10y")
+            if sp500_hist is not None and not sp500_hist.empty:
+                # Sample monthly data
+                monthly_data = sp500_hist.resample('M').last()
+                
+                for date, row in monthly_data.iterrows():
+                    data = {
+                        'date': date.strftime('%Y-%m-%d'),
+                        'time': '00:00:00',
+                        'timestamp': date.strftime('%Y-%m-%d %H:%M:%S'),
+                        'sp500_price': row['Close'],
+                        'sp500_pe_estimate': None,
+                        'vix_level': None,
+                        'vix_interpretation': None,
+                        'concentration_ratio': None,
+                        'ten_year_treasury': None,
+                        'fed_funds_rate_approx': None,
+                        'bubble_risk_score': None,
+                        'bubble_risk_level': None,
+                        'risk_factors': None,
+                        'total_ai_market_cap': None,
+                        'nvidia_dominance_ratio': None,
+                        'company_breakdown': None,
+                        'top_10_market_cap': None,
+                        'sp500_total_market_cap': None,
+                        'is_historical': True  # Flag for historical data
+                    }
+                    
+                    # Add AI stock data for this date
+                    for ticker, company in self.ai_stocks.items():
+                        try:
+                            stock_hist = self.get_historical_data(ticker, "10y")
+                            if stock_hist is not None and not stock_hist.empty:
+                                monthly_stock = stock_hist.resample('M').last()
+                                if date in monthly_stock.index:
+                                    stock_row = monthly_stock.loc[date]
+                                    data[f"{company.lower().replace(' ', '_')}_price"] = stock_row['Close']
+                                    data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
+                                    data[f"{company.lower().replace(' ', '_')}_pe"] = None
+                                else:
+                                    data[f"{company.lower().replace(' ', '_')}_price"] = None
+                                    data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
+                                    data[f"{company.lower().replace(' ', '_')}_pe"] = None
+                        except:
+                            data[f"{company.lower().replace(' ', '_')}_price"] = None
+                            data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
+                            data[f"{company.lower().replace(' ', '_')}_pe"] = None
+                    
+                    # Add index data
+                    for ticker, name in self.indices.items():
+                        try:
+                            index_hist = self.get_historical_data(ticker, "10y")
+                            if index_hist is not None and not index_hist.empty:
+                                monthly_index = index_hist.resample('M').last()
+                                if date in monthly_index.index:
+                                    index_row = monthly_index.loc[date]
+                                    safe_name = name.lower().replace(' ', '_').replace('-', '_')
+                                    data[f"{safe_name}_price"] = index_row['Close']
+                                else:
+                                    safe_name = name.lower().replace(' ', '_').replace('-', '_')
+                                    data[f"{safe_name}_price"] = None
+                        except:
+                            safe_name = name.lower().replace(' ', '_').replace('-', '_')
+                            data[f"{safe_name}_price"] = None
+                    
+                    historical_data.append(data)
+            
+            # Add VIX historical data
+            vix_hist = self.get_historical_data("^VIX", "10y")
+            if vix_hist is not None and not vix_hist.empty:
+                monthly_vix = vix_hist.resample('M').last()
+                for hist_data in historical_data:
+                    target_date = datetime.strptime(hist_data['date'], '%Y-%m-%d')
+                    if target_date in monthly_vix.index:
+                        hist_data['vix_level'] = monthly_vix.loc[target_date]['Close']
+                        hist_data['vix_interpretation'] = self.interpret_vix(hist_data['vix_level'])
+            
+            # Add 10-Year Treasury historical data
+            tnx_hist = self.get_historical_data("^TNX", "10y")
+            if tnx_hist is not None and not tnx_hist.empty:
+                monthly_tnx = tnx_hist.resample('M').last()
+                for hist_data in historical_data:
+                    target_date = datetime.strptime(hist_data['date'], '%Y-%m-%d')
+                    if target_date in monthly_tnx.index:
+                        hist_data['ten_year_treasury'] = monthly_tnx.loc[target_date]['Close']
+            
+            # Convert historical data to DataFrame
+            hist_df = pd.DataFrame(historical_data)
+            
+            # Mark current data
+            current_df['is_historical'] = False
+            
+            # Combine historical and current data
+            combined_df = pd.concat([hist_df, current_df], ignore_index=True)
+            
+            # Sort by date (oldest first)
+            combined_df = combined_df.sort_values('date')
+            combined_df = combined_df.reset_index(drop=True)
+            
+            # Clean and format data
+            combined_df = self.clean_and_format_data(combined_df)
+            
+            # Save combined dataset
+            self.save_combined_dataset(combined_df)
+            
+            self.logger.info(f"Created combined dataset with {len(combined_df)} records ({len(hist_df)} historical + {len(current_df)} current)")
+            return combined_df
+            
+        except Exception as e:
+            self.logger.error(f"Error creating combined dataset: {e}")
+            return pd.DataFrame()
+
+    def save_combined_dataset(self, combined_df):
+        """Save combined dataset to Excel file"""
+        try:
+            if combined_df.empty:
+                self.logger.warning("No combined data to save")
+                return
+            
+            # Create workbook with multiple sheets
+            wb = Workbook()
+            wb.remove(wb.active)
+            
+            # Create combined summary sheet
+            self.create_combined_summary_sheet(combined_df, wb)
+            
+            # Create combined dataset sheet
+            ws_data = wb.create_sheet('Combined Data', 1)
+            
+            # Define the proper column order for the combined dataset
+            proper_columns = [
+                'date', 'time', 'timestamp', 'is_historical', 'vix_level', 'vix_interpretation',
+                'sp500_price', 'sp500_pe_estimate', 'top_10_market_cap', 'sp500_total_market_cap',
+                'concentration_ratio', 'company_breakdown', 'ten_year_treasury', 'fed_funds_rate_approx',
+                'nvidia_price', 'nvidia_market_cap', 'nvidia_pe',
+                'microsoft_price', 'microsoft_market_cap', 'microsoft_pe',
+                'alphabet_price', 'alphabet_market_cap', 'alphabet_pe',
+                'apple_price', 'apple_market_cap', 'apple_pe',
+                'amazon_price', 'amazon_market_cap', 'amazon_pe',
+                'meta_price', 'meta_market_cap', 'meta_pe',
+                'tesla_price', 'tesla_market_cap', 'tesla_pe',
+                'total_ai_market_cap', 'nvidia_dominance_ratio',
+                'bubble_risk_score', 'bubble_risk_level', 'risk_factors',
+                's&p_500_price', 'nasdaq_price', 'vix_price', '10_year_treasury_price'
+            ]
+            
+            # Add headers
+            ws_data.append(proper_columns)
+            
+            # Add combined data
+            for _, row in combined_df.iterrows():
+                data_row = [row.get(col, '') for col in proper_columns]
+                ws_data.append(data_row)
+            
+            # Save combined file
+            wb.save(self.combined_file)
+            self.logger.info(f"Combined dataset saved to: {self.combined_file}")
+            
+            # Apply intelligent conditional formatting
+            self.apply_combined_formatting(self.combined_file, combined_df)
+            
+        except Exception as e:
+            self.logger.error(f"Error saving combined dataset: {e}")
+
+    def create_combined_summary_sheet(self, combined_df, wb):
+        """Create summary sheet for combined data"""
+        try:
+            ws_summary = wb.create_sheet('Combined Summary', 0)
+            
+            # Define styles
+            header_fill = PatternFill(start_color="2F4F4F", end_color="2F4F4F", fill_type="solid")
+            header_font = Font(bold=True, color="FFFFFF", size=14)
+            subheader_font = Font(bold=True, size=12)
+            data_font = Font(size=11)
+            border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                          top=Side(style='thin'), bottom=Side(style='thin'))
+            
+            row = 1
+            
+            # Title
+            ws_summary.merge_cells(f'A{row}:D{row}')
+            ws_summary[f'A{row}'] = "AI Bubble Indicator - Combined Historical & Current Dataset"
+            ws_summary[f'A{row}'].font = Font(bold=True, size=16, color="2F4F4F")
+            ws_summary[f'A{row}'].alignment = Alignment(horizontal='center')
+            row += 2
+            
+            # Dataset info
+            historical_count = len(combined_df[combined_df['is_historical'] == True])
+            current_count = len(combined_df[combined_df['is_historical'] == False])
+            
+            ws_summary[f'A{row}'] = f"Total Records: {len(combined_df)} (Historical: {historical_count}, Current: {current_count})"
+            ws_summary[f'A{row}'].font = Font(italic=True, size=10)
+            row += 1
+            
+            ws_summary[f'A{row}'] = f"Date Range: {combined_df['date'].min()} to {combined_df['date'].max()}"
+            ws_summary[f'A{row}'].font = Font(italic=True, size=10)
+            row += 2
+            
+            # Current vs Historical Analysis
+            ws_summary[f'A{row}'] = "CURRENT vs HISTORICAL ANALYSIS"
+            ws_summary[f'A{row}'].font = subheader_font
+            ws_summary[f'A{row}'].fill = header_fill
+            ws_summary[f'A{row}'].font = Font(bold=True, color="FFFFFF")
+            row += 1
+            
+            # Get current data
+            current_data = combined_df[combined_df['is_historical'] == False].iloc[0] if len(combined_df[combined_df['is_historical'] == False]) > 0 else None
+            historical_data = combined_df[combined_df['is_historical'] == True]
+            
+            if current_data is not None and not historical_data.empty:
+                # S&P 500 analysis
+                sp500_hist = historical_data['sp500_price'].dropna()
+                if not sp500_hist.empty and current_data.get('sp500_price'):
+                    current_sp500 = current_data['sp500_price']
+                    hist_min = sp500_hist.min()
+                    hist_max = sp500_hist.max()
+                    hist_avg = sp500_hist.mean()
+                    hist_percentile = (current_sp500 - hist_min) / (hist_max - hist_min) * 100
+                    
+                    ws_summary[f'A{row}'] = "S&P 500 Current:"
+                    ws_summary[f'B{row}'] = f"${current_sp500:,.2f}"
+                    ws_summary[f'C{row}'] = f"Percentile: {hist_percentile:.1f}%"
+                    row += 1
+                    
+                    ws_summary[f'A{row}'] = "S&P 500 Historical Range:"
+                    ws_summary[f'B{row}'] = f"${hist_min:,.2f} - ${hist_max:,.2f}"
+                    ws_summary[f'C{row}'] = f"Average: ${hist_avg:,.2f}"
+                    row += 2
+                
+                # VIX analysis
+                vix_hist = historical_data['vix_level'].dropna()
+                if not vix_hist.empty and current_data.get('vix_level'):
+                    current_vix = current_data['vix_level']
+                    hist_min = vix_hist.min()
+                    hist_max = vix_hist.max()
+                    hist_avg = vix_hist.mean()
+                    hist_percentile = (current_vix - hist_min) / (hist_max - hist_min) * 100
+                    
+                    ws_summary[f'A{row}'] = "VIX Current:"
+                    ws_summary[f'B{row}'] = f"{current_vix:.2f}"
+                    ws_summary[f'C{row}'] = f"Percentile: {hist_percentile:.1f}%"
+                    row += 1
+                    
+                    ws_summary[f'A{row}'] = "VIX Historical Range:"
+                    ws_summary[f'B{row}'] = f"{hist_min:.2f} - {hist_max:.2f}"
+                    ws_summary[f'C{row}'] = f"Average: {hist_avg:.2f}"
+                    row += 2
+            
+            # Apply borders and formatting
+            for row_num in range(1, row):
+                for col in ['A', 'B', 'C', 'D']:
+                    cell = ws_summary[f'{col}{row_num}']
+                    cell.border = border
+                    if row_num > 1:
+                        cell.alignment = Alignment(vertical='center')
+            
+            # Auto-adjust column widths
+            ws_summary.column_dimensions['A'].width = 25
+            ws_summary.column_dimensions['B'].width = 20
+            ws_summary.column_dimensions['C'].width = 25
+            ws_summary.column_dimensions['D'].width = 20
+            
+            self.logger.info("Created combined summary sheet")
+            
+        except Exception as e:
+            self.logger.error(f"Error creating combined summary sheet: {e}")
+
+    def apply_combined_formatting(self, filepath, combined_df):
+        """Apply intelligent conditional formatting based on historical ranges"""
+        try:
+            wb = load_workbook(filepath)
+            
+            # Apply formatting to Combined Data sheet
+            if 'Combined Data' in wb.sheetnames:
+                ws = wb['Combined Data']
+                
+                # Calculate historical ranges for conditional formatting
+                historical_data = combined_df[combined_df['is_historical'] == True]
+                
+                # Define historical percentiles for key metrics
+                metrics_ranges = {}
+                
+                # S&P 500
+                sp500_hist = historical_data['sp500_price'].dropna()
+                if not sp500_hist.empty:
+                    metrics_ranges['sp500_price'] = {
+                        'min': sp500_hist.min(),
+                        'max': sp500_hist.max(),
+                        'p25': sp500_hist.quantile(0.25),
+                        'p75': sp500_hist.quantile(0.75),
+                        'p90': sp500_hist.quantile(0.90),
+                        'p95': sp500_hist.quantile(0.95)
+                    }
+                
+                # VIX
+                vix_hist = historical_data['vix_level'].dropna()
+                if not vix_hist.empty:
+                    metrics_ranges['vix_level'] = {
+                        'min': vix_hist.min(),
+                        'max': vix_hist.max(),
+                        'p25': vix_hist.quantile(0.25),
+                        'p75': vix_hist.quantile(0.75),
+                        'p90': vix_hist.quantile(0.90),
+                        'p95': vix_hist.quantile(0.95)
+                    }
+                
+                # Format header row
+                for col in range(1, ws.max_column + 1):
+                    cell = ws.cell(row=1, column=col)
+                    cell.font = Font(bold=True)
+                    cell.fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
+                
+                # Apply conditional formatting to data rows
+                for row in range(2, ws.max_row + 1):
+                    for col in range(1, ws.max_column + 1):
+                        cell = ws.cell(row=row, column=col)
+                        column_name = ws.cell(row=1, column=col).value
+                        
+                        # Check if this is a current (non-historical) row
+                        is_current = ws.cell(row=row, column=4).value == False  # is_historical column
+                        
+                        if column_name in metrics_ranges and cell.value is not None and isinstance(cell.value, (int, float)):
+                            ranges = metrics_ranges[column_name]
+                            value = float(cell.value)
+                            
+                            # Determine percentile
+                            if value <= ranges['p25']:
+                                percentile = 'very_low'
+                            elif value <= ranges['p75']:
+                                percentile = 'normal'
+                            elif value <= ranges['p90']:
+                                percentile = 'high'
+                            elif value <= ranges['p95']:
+                                percentile = 'very_high'
+                            else:
+                                percentile = 'extreme'
+                            
+                            # Apply color based on percentile and whether it's current data
+                            if is_current:  # Current data gets more prominent colors
+                                if percentile == 'very_low':
+                                    cell.fill = PatternFill(start_color="E6FFE6", end_color="E6FFE6", fill_type="solid")  # Light green
+                                elif percentile == 'normal':
+                                    cell.fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")  # White
+                                elif percentile == 'high':
+                                    cell.fill = PatternFill(start_color="FFE4B5", end_color="FFE4B5", fill_type="solid")  # Light orange
+                                elif percentile == 'very_high':
+                                    cell.fill = PatternFill(start_color="FFB6C1", end_color="FFB6C1", fill_type="solid")  # Light red
+                                else:  # extreme
+                                    cell.fill = PatternFill(start_color="FF6B6B", end_color="FF6B6B", fill_type="solid")  # Bright red
+                            else:  # Historical data gets lighter colors
+                                if percentile == 'very_low':
+                                    cell.fill = PatternFill(start_color="F0F8F0", end_color="F0F8F0", fill_type="solid")  # Very light green
+                                elif percentile == 'normal':
+                                    cell.fill = PatternFill(start_color="F8F8F8", end_color="F8F8F8", fill_type="solid")  # Very light gray
+                                elif percentile == 'high':
+                                    cell.fill = PatternFill(start_color="FFF8E0", end_color="FFF8E0", fill_type="solid")  # Very light orange
+                                elif percentile == 'very_high':
+                                    cell.fill = PatternFill(start_color="FFE8E8", end_color="FFE8E8", fill_type="solid")  # Very light red
+                                else:  # extreme
+                                    cell.fill = PatternFill(start_color="FFE0E0", end_color="FFE0E0", fill_type="solid")  # Light red
+                
+                # Auto-adjust column widths
+                for column in ws.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    
+                    for cell in column:
+                        try:
+                            if cell.value is not None:
+                                max_length = max(max_length, len(str(cell.value)))
+                        except:
+                            pass
+                    
+                    adjusted_width = min(max_length + 2, 30)
+                    ws.column_dimensions[column_letter].width = adjusted_width
+                
+                wb.save(filepath)
+                self.logger.info("Applied intelligent conditional formatting to Combined Data sheet")
+                return
+                
+        except Exception as e:
+            self.logger.error(f"Error applying combined formatting: {e}")
 
     def create_summary_sheet(self, df, wb):
         """Create a summary sheet with key metrics and definitions"""
@@ -1061,9 +1473,14 @@ class BubbleIndicatorScraper:
             # Save dataset
             self.save_dataset(updated_df)
             
+            # Create combined historical + current dataset
+            self.logger.info("Creating combined historical + current dataset...")
+            combined_df = self.create_combined_dataset()
+            
             end_time = datetime.now()
             duration = end_time - start_time
             self.logger.info(f"Bubble indicator update completed in {duration}")
+            self.logger.info(f"Created combined dataset with {len(combined_df)} records")
             
         except Exception as e:
             self.logger.error(f"Error during bubble indicator update: {e}")
