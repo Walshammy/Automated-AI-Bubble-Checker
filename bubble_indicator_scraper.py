@@ -9,8 +9,9 @@ from datetime import datetime, timedelta
 import logging
 import json
 import re
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill, Font, Alignment
+from openpyxl import load_workbook, Workbook
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.utils.dataframe import dataframe_to_rows
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -86,11 +87,19 @@ class BubbleIndicatorScraper:
             # Clean numeric columns
             numeric_columns = ['vix_level', 'sp500_price', 'concentration_ratio', 'ten_year_treasury', 
                              'fed_funds_rate_approx', 'bubble_risk_score', 'total_ai_market_cap', 
-                             'nvidia_dominance_ratio']
+                             'nvidia_dominance_ratio', 'top_10_market_cap', 'sp500_total_market_cap']
+            
+            # Clean text columns that might contain JSON
+            text_columns = ['company_breakdown']
             
             for col in numeric_columns:
                 if col in cleaned_df.columns:
                     cleaned_df[col] = cleaned_df[col].apply(lambda x: self.clean_number(x))
+            
+            # Clean text columns
+            for col in text_columns:
+                if col in cleaned_df.columns:
+                    cleaned_df[col] = cleaned_df[col].apply(lambda x: str(x) if x is not None else '')
             
             # Clean AI stock price columns
             for ticker in self.ai_stocks.keys():
@@ -142,6 +151,191 @@ class BubbleIndicatorScraper:
             pass
         
         return value
+
+    def create_summary_sheet(self, df, wb):
+        """Create a summary sheet with key metrics and definitions"""
+        try:
+            # Create or get summary sheet
+            if 'Summary' in wb.sheetnames:
+                ws_summary = wb['Summary']
+                ws_summary.delete_rows(1, ws_summary.max_row)  # Clear existing data
+            else:
+                ws_summary = wb.create_sheet('Summary', 0)  # Insert as first sheet
+            
+            # Define styles
+            header_fill = PatternFill(start_color="2F4F4F", end_color="2F4F4F", fill_type="solid")
+            header_font = Font(bold=True, color="FFFFFF", size=14)
+            subheader_font = Font(bold=True, size=12)
+            data_font = Font(size=11)
+            border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                          top=Side(style='thin'), bottom=Side(style='thin'))
+            
+            row = 1
+            
+            # Title
+            ws_summary.merge_cells(f'A{row}:D{row}')
+            ws_summary[f'A{row}'] = "AI Bubble Indicator Dashboard"
+            ws_summary[f'A{row}'].font = Font(bold=True, size=16, color="2F4F4F")
+            ws_summary[f'A{row}'].alignment = Alignment(horizontal='center')
+            row += 2
+            
+            # Last updated
+            ws_summary[f'A{row}'] = f"Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            ws_summary[f'A{row}'].font = Font(italic=True, size=10)
+            row += 2
+            
+            # Data collection summary
+            if not df.empty:
+                latest = df.iloc[0]
+                total_days = len(df)
+                
+                # Key metrics section
+                ws_summary[f'A{row}'] = "KEY METRICS"
+                ws_summary[f'A{row}'].font = subheader_font
+                ws_summary[f'A{row}'].fill = header_fill
+                ws_summary[f'A{row}'].font = Font(bold=True, color="FFFFFF")
+                row += 1
+                
+                # Current date and days recorded
+                ws_summary[f'A{row}'] = "Current Date:"
+                ws_summary[f'B{row}'] = latest.get('date', 'N/A')
+                ws_summary[f'C{row}'] = "Days Recorded:"
+                ws_summary[f'D{row}'] = total_days
+                row += 1
+                
+                # VIX
+                ws_summary[f'A{row}'] = "VIX Level:"
+                ws_summary[f'B{row}'] = f"{latest.get('vix_level', 'N/A'):.2f}" if latest.get('vix_level') else 'N/A'
+                ws_summary[f'C{row}'] = "VIX Interpretation:"
+                ws_summary[f'D{row}'] = latest.get('vix_interpretation', 'N/A')
+                row += 1
+                
+                # Bubble risk
+                ws_summary[f'A{row}'] = "Bubble Risk Level:"
+                ws_summary[f'B{row}'] = latest.get('bubble_risk_level', 'N/A')
+                ws_summary[f'C{row}'] = "Risk Score:"
+                ws_summary[f'D{row}'] = f"{latest.get('bubble_risk_score', 'N/A'):.1f}" if latest.get('bubble_risk_score') else 'N/A'
+                row += 1
+                
+                # Market concentration
+                ws_summary[f'A{row}'] = "Market Concentration:"
+                ws_summary[f'B{row}'] = f"{latest.get('concentration_ratio', 'N/A'):.1f}%" if latest.get('concentration_ratio') else 'N/A'
+                ws_summary[f'C{row}'] = "Top 10 Market Cap:"
+                ws_summary[f'D{row}'] = f"${latest.get('top_10_market_cap', 'N/A'):,.0f}" if latest.get('top_10_market_cap') else 'N/A'
+                row += 1
+                
+                # S&P 500
+                ws_summary[f'A{row}'] = "S&P 500 Price:"
+                ws_summary[f'B{row}'] = f"${latest.get('sp500_price', 'N/A'):,.2f}" if latest.get('sp500_price') else 'N/A'
+                ws_summary[f'C{row}'] = "S&P 500 P/E:"
+                ws_summary[f'D{row}'] = f"{latest.get('sp500_pe_estimate', 'N/A'):.2f}" if latest.get('sp500_pe_estimate') else 'N/A'
+                row += 1
+                
+                # Interest rates
+                ws_summary[f'A{row}'] = "10-Year Treasury:"
+                ws_summary[f'B{row}'] = f"{latest.get('ten_year_treasury', 'N/A'):.2f}%" if latest.get('ten_year_treasury') else 'N/A'
+                ws_summary[f'C{row}'] = "Fed Funds Rate:"
+                ws_summary[f'D{row}'] = f"{latest.get('fed_funds_rate_approx', 'N/A'):.2f}%" if latest.get('fed_funds_rate_approx') else 'N/A'
+                row += 1
+                
+                # NVIDIA dominance
+                ws_summary[f'A{row}'] = "NVIDIA Dominance:"
+                ws_summary[f'B{row}'] = f"{latest.get('nvidia_dominance_ratio', 'N/A'):.1f}%" if latest.get('nvidia_dominance_ratio') else 'N/A'
+                ws_summary[f'C{row}'] = "Total AI Market Cap:"
+                ws_summary[f'D{row}'] = f"${latest.get('total_ai_market_cap', 'N/A'):,.0f}" if latest.get('total_ai_market_cap') else 'N/A'
+                row += 2
+                
+                # Risk factors
+                risk_factors = latest.get('risk_factors', '')
+                if risk_factors:
+                    ws_summary[f'A{row}'] = "CURRENT RISK FACTORS:"
+                    ws_summary[f'A{row}'].font = subheader_font
+                    ws_summary[f'A{row}'].fill = header_fill
+                    ws_summary[f'A{row}'].font = Font(bold=True, color="FFFFFF")
+                    row += 1
+                    
+                    # Split risk factors and display
+                    factors = risk_factors.split('; ')
+                    for factor in factors:
+                        if factor.strip():
+                            ws_summary[f'A{row}'] = f"• {factor.strip()}"
+                            ws_summary[f'A{row}'].font = data_font
+                            row += 1
+                    row += 1
+                
+                # AI Stock Prices
+                ws_summary[f'A{row}'] = "AI STOCK PRICES"
+                ws_summary[f'A{row}'].font = subheader_font
+                ws_summary[f'A{row}'].fill = header_fill
+                ws_summary[f'A{row}'].font = Font(bold=True, color="FFFFFF")
+                row += 1
+                
+                # Headers for AI stocks
+                ws_summary[f'A{row}'] = "Company"
+                ws_summary[f'B{row}'] = "Price"
+                ws_summary[f'C{row}'] = "Market Cap"
+                ws_summary[f'D{row}'] = "P/E Ratio"
+                for col in ['A', 'B', 'C', 'D']:
+                    ws_summary[f'{col}{row}'].font = Font(bold=True)
+                    ws_summary[f'{col}{row}'].fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
+                row += 1
+                
+                # AI stock data
+                for ticker, company in self.ai_stocks.items():
+                    price_col = f"{company.lower().replace(' ', '_')}_price"
+                    market_cap_col = f"{company.lower().replace(' ', '_')}_market_cap"
+                    pe_col = f"{company.lower().replace(' ', '_')}_pe"
+                    
+                    ws_summary[f'A{row}'] = company
+                    ws_summary[f'B{row}'] = f"${latest.get(price_col, 'N/A'):,.2f}" if latest.get(price_col) else 'N/A'
+                    ws_summary[f'C{row}'] = f"${latest.get(market_cap_col, 'N/A'):,.0f}" if latest.get(market_cap_col) else 'N/A'
+                    ws_summary[f'D{row}'] = f"{latest.get(pe_col, 'N/A'):.2f}" if latest.get(pe_col) else 'N/A'
+                    row += 1
+                
+                row += 2
+            
+            # Definitions section
+            ws_summary[f'A{row}'] = "DEFINITIONS & RISK THRESHOLDS"
+            ws_summary[f'A{row}'].font = subheader_font
+            ws_summary[f'A{row}'].fill = header_fill
+            ws_summary[f'A{row}'].font = Font(bold=True, color="FFFFFF")
+            row += 1
+            
+            definitions = [
+                ("VIX (Volatility Index)", "Measures market fear/volatility. Lower = complacency risk, Higher = panic"),
+                ("Market Concentration", "Top 10 companies as % of S&P 500. Higher = concentration risk"),
+                ("Bubble Risk Score", "0-10 scale. 0-2=Low, 3-4=Elevated, 5-6=Moderate, 7+=High risk"),
+                ("S&P 500 P/E Ratio", "Price-to-earnings ratio. Higher = overvaluation risk"),
+                ("NVIDIA Dominance", "NVIDIA market cap as % of total AI sector. Higher = single-stock risk"),
+                ("10-Year Treasury", "Government bond yield. Lower = asset inflation risk"),
+                ("Risk Color Coding", "White=Low, Orange=Medium, Red=High, Bright Red=Extreme risk")
+            ]
+            
+            for term, definition in definitions:
+                ws_summary[f'A{row}'] = term
+                ws_summary[f'A{row}'].font = Font(bold=True)
+                ws_summary[f'B{row}'] = definition
+                ws_summary[f'B{row}'].font = data_font
+                row += 1
+            
+            # Apply borders and formatting
+            for row_num in range(1, row):
+                for col in ['A', 'B', 'C', 'D']:
+                    cell = ws_summary[f'{col}{row_num}']
+                    cell.border = border
+                    if row_num > 1:  # Skip title row
+                        cell.alignment = Alignment(vertical='center')
+            
+            # Auto-adjust column widths
+            ws_summary.column_dimensions['A'].width = 25
+            ws_summary.column_dimensions['B'].width = 20
+            ws_summary.column_dimensions['C'].width = 25
+            ws_summary.column_dimensions['D'].width = 20
+            
+            self.logger.info("Created summary sheet")
+            
+        except Exception as e:
+            self.logger.error(f"Error creating summary sheet: {e}")
 
     def get_stock_data(self, ticker, period="1d"):
         """Get current stock data using yfinance"""
@@ -251,26 +445,45 @@ class BubbleIndicatorScraper:
             return {'sp500_price': None, 'sp500_pe_estimate': 18.5}  # Fallback estimate
 
     def calculate_market_concentration(self):
-        """Calculate market concentration of top companies"""
+        """Calculate market concentration of top 10 companies vs S&P 500"""
         try:
+            # Top 10 companies by market cap (as of 2024)
             top_companies = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'META', 'TSLA', 'BRK-B', 'LLY', 'V']
             total_top_10_cap = 0
             company_data = {}
+            
             for ticker in top_companies:
                 data = self.get_stock_data(ticker)
                 if data and data['market_cap']:
                     total_top_10_cap += data['market_cap']
                     company_data[ticker] = data['market_cap']
-            sp500_approximate_cap = total_top_10_cap * 2.5 if total_top_10_cap > 0 else 0
-            concentration_ratio = (total_top_10_cap / sp500_approximate_cap) * 100 if sp500_approximate_cap > 0 else 0
+            
+            # Get S&P 500 total market cap (more accurate than approximation)
+            try:
+                # Use SPY as proxy for S&P 500 market cap
+                spy = yf.Ticker("SPY")
+                spy_info = spy.info
+                sp500_market_cap = spy_info.get('totalAssets', 0)  # SPY total assets approximate S&P 500 market cap
+                
+                # If SPY data not available, use historical S&P 500 market cap (~$40-50 trillion)
+                if not sp500_market_cap or sp500_market_cap < 1000000000000:  # Less than 1 trillion
+                    sp500_market_cap = 45000000000000  # ~$45 trillion estimate
+                    self.logger.warning("Using estimated S&P 500 market cap")
+            except:
+                sp500_market_cap = 45000000000000  # Fallback estimate
+            
+            # Calculate concentration ratio: Top 10 market cap / S&P 500 total market cap
+            concentration_ratio = (total_top_10_cap / sp500_market_cap) * 100 if sp500_market_cap > 0 else 0
+            
             return {
                 'top_10_market_cap': total_top_10_cap,
+                'sp500_total_market_cap': sp500_market_cap,
                 'concentration_ratio': concentration_ratio,
-                'company_breakdown': company_data
+                'company_breakdown': json.dumps(company_data)  # Convert dict to JSON string
             }
         except Exception as e:
             self.logger.error(f"Error calculating market concentration: {e}")
-            return {'top_10_market_cap': 0, 'concentration_ratio': 0, 'company_breakdown': {}}
+            return {'top_10_market_cap': 0, 'sp500_total_market_cap': 0, 'concentration_ratio': 0, 'company_breakdown': '{}'}
 
     def get_interest_rates(self):
         """Get current interest rates"""
@@ -533,15 +746,15 @@ class BubbleIndicatorScraper:
                 else:
                     return very_high_risk_fill  # Very high P/E
             
-            # Market concentration
+            # Market concentration (top 10 companies as % of S&P 500)
             elif column_name == 'concentration_ratio':
-                if value < 25:
+                if value < 20:
                     return very_low_risk_fill  # Very low concentration
-                elif value < 30:
+                elif value < 25:
                     return low_risk_fill  # Low concentration
-                elif value < 35:
+                elif value < 30:
                     return medium_risk_fill  # Medium concentration
-                elif value < 40:
+                elif value < 35:
                     return high_risk_fill  # High concentration
                 else:
                     return very_high_risk_fill  # Very high concentration
@@ -609,152 +822,115 @@ class BubbleIndicatorScraper:
         """Apply intelligent risk-based conditional formatting to Excel file"""
         try:
             wb = load_workbook(filepath)
-            ws = wb.active
-
-            # Define header colors
-            header_fill = PatternFill(start_color="2F4F4F", end_color="2F4F4F", fill_type="solid")  # Dark slate gray
-            header_font = Font(bold=True, color="FFFFFF")  # White bold text
-
-            # Style the header row (row 1)
-            for col in range(1, ws.max_column + 1):
-                cell = ws.cell(row=1, column=col)
-                cell.fill = header_fill
-                cell.font = header_font
-                cell.alignment = Alignment(horizontal='center', vertical='center')
-
-            # Set compact row heights for better visibility
-            for row in range(1, ws.max_row + 1):
-                ws.row_dimensions[row].height = 15  # Compact row height
-
-            # Get column names for risk-based formatting
-            column_names = {}
-            for col in range(1, ws.max_column + 1):
-                column_names[col] = ws.cell(row=1, column=col).value
-
-            # Apply intelligent risk-based formatting to each cell
-            for row in range(2, ws.max_row + 1):
-                # Get row data for context
-                row_data = {}
-                for col in range(1, ws.max_column + 1):
-                    row_data[column_names[col]] = ws.cell(row=row, column=col).value
+            
+            # Apply formatting to Dataset sheet (sheet 2) - clean data only
+            if 'Dataset' in wb.sheetnames:
+                ws = wb['Dataset']
                 
+                # Simple header formatting for dataset
+                header_fill = PatternFill(start_color="2F4F4F", end_color="2F4F4F", fill_type="solid")
+                header_font = Font(bold=True, color="FFFFFF")
+                
+                # Style header row only
                 for col in range(1, ws.max_column + 1):
-                    cell = ws.cell(row=row, column=col)
-                    column_name = column_names[col]
-                    cell_value = cell.value
+                    cell = ws.cell(row=1, column=col)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                
+                # Auto-adjust column widths
+                for column in ws.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
                     
-                    # Set alignment based on column type
-                    if column_name in ['date', 'time', 'timestamp']:
-                        cell.alignment = Alignment(horizontal='center', vertical='center')
-                    elif column_name in ['vix_level', 'sp500_price', 'sp500_pe_estimate', 'concentration_ratio', 
-                                       'ten_year_treasury', 'fed_funds_rate_approx', 'bubble_risk_score', 
-                                       'total_ai_market_cap', 'nvidia_dominance_ratio']:
-                        cell.alignment = Alignment(horizontal='center', vertical='center')
-                    elif 'pe' in column_name or 'price' in column_name or 'market_cap' in column_name:
-                        cell.alignment = Alignment(horizontal='center', vertical='center')
-                    else:
-                        cell.alignment = Alignment(horizontal='left', vertical='center')
-                    
-                    # Apply risk-based color formatting
-                    if cell_value is not None and column_name:
+                    for cell in column:
                         try:
-                            # Convert to float if possible for numeric comparisons
-                            if isinstance(cell_value, (int, float)):
-                                risk_color = self.get_risk_color(cell_value, column_name, row_data)
-                                cell.fill = risk_color
-                            elif isinstance(cell_value, str) and cell_value.replace('.', '').replace('-', '').isdigit():
-                                # Try to convert string numbers
-                                numeric_value = float(cell_value)
-                                risk_color = self.get_risk_color(numeric_value, column_name, row_data)
-                                cell.fill = risk_color
-                        except:
-                            # If conversion fails, use default white
-                            cell.fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
-
-            # Apply number formatting to appropriate columns
-            for col in range(1, ws.max_column + 1):
-                column_name = ws.cell(row=1, column=col).value
-                
-                if column_name in ['vix_level', 'sp500_price', 'concentration_ratio', 'ten_year_treasury', 
-                                 'fed_funds_rate_approx', 'bubble_risk_score', 'total_ai_market_cap', 
-                                 'nvidia_dominance_ratio']:
-                    # Number formatting for key metrics
-                    for row in range(2, ws.max_row + 1):
-                        cell = ws.cell(row=row, column=col)
-                        if isinstance(cell.value, (int, float)) and cell.value is not None:
-                            if column_name == 'bubble_risk_score':
-                                cell.number_format = '0.0'  # One decimal place
-                            elif column_name in ['concentration_ratio', 'nvidia_dominance_ratio']:
-                                cell.number_format = '0.0'  # One decimal place for percentages
-                            else:
-                                cell.number_format = '#,##0.00'  # Two decimal places with commas
-                
-                elif column_name and any(stock.lower().replace(' ', '_') in column_name for stock in self.ai_stocks.values()):
-                    # AI stock price columns
-                    if 'price' in column_name:
-                        for row in range(2, ws.max_row + 1):
-                            cell = ws.cell(row=row, column=col)
-                            if isinstance(cell.value, (int, float)) and cell.value is not None:
-                                cell.number_format = '#,##0.00'  # Two decimal places
-                    elif 'market_cap' in column_name:
-                        for row in range(2, ws.max_row + 1):
-                            cell = ws.cell(row=row, column=col)
-                            if isinstance(cell.value, (int, float)) and cell.value is not None:
-                                cell.number_format = '#,##0'  # No decimal places for market cap
-                    elif 'pe' in column_name:
-                        for row in range(2, ws.max_row + 1):
-                            cell = ws.cell(row=row, column=col)
-                            if isinstance(cell.value, (int, float)) and cell.value is not None:
-                                cell.number_format = '0.00'  # Two decimal places for P/E ratios
-            
-            # Auto-adjust column widths with better formatting
-            for column in ws.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                
-                # Calculate max length for this column
-                for cell in column:
-                    try:
-                        if cell.value is not None:
-                            # For headers, use the header text length
-                            if cell.row == 1:
+                            if cell.value is not None:
                                 max_length = max(max_length, len(str(cell.value)))
+                        except:
+                            pass
+                    
+                    adjusted_width = min(max_length + 2, 30)
+                    ws.column_dimensions[column_letter].width = adjusted_width
+                
+                wb.save(filepath)
+                self.logger.info("Applied simple formatting to Dataset sheet")
+                return
+            
+            # Apply dashboard formatting to Summary sheet
+            if 'Summary' in wb.sheetnames:
+                ws = wb['Summary']
+                
+                # Define dashboard colors
+                header_fill = PatternFill(start_color="2F4F4F", end_color="2F4F4F", fill_type="solid")
+                header_font = Font(bold=True, color="FFFFFF", size=14)
+                subheader_fill = PatternFill(start_color="4A90E2", end_color="4A90E2", fill_type="solid")
+                subheader_font = Font(bold=True, color="FFFFFF", size=12)
+                data_font = Font(size=11)
+                border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                              top=Side(style='thin'), bottom=Side(style='thin'))
+                
+                # Apply dashboard formatting to all cells
+                for row in range(1, ws.max_row + 1):
+                    for col in range(1, ws.max_column + 1):
+                        cell = ws.cell(row=row, column=col)
+                        cell.border = border
+                        
+                        # Apply different formatting based on content
+                        if cell.value and isinstance(cell.value, str):
+                            cell_value = str(cell.value).upper()
+                            
+                            # Main headers
+                            if any(keyword in cell_value for keyword in ['AI BUBBLE INDICATOR', 'KEY METRICS', 'CURRENT RISK FACTORS', 'AI STOCK PRICES', 'DEFINITIONS']):
+                                cell.fill = header_fill
+                                cell.font = header_font
+                                cell.alignment = Alignment(horizontal='center', vertical='center')
+                            
+                            # Subheaders
+                            elif any(keyword in cell_value for keyword in ['COMPANY', 'PRICE', 'MARKET CAP', 'P/E RATIO']):
+                                cell.fill = subheader_fill
+                                cell.font = subheader_font
+                                cell.alignment = Alignment(horizontal='center', vertical='center')
+                            
+                            # Risk factors
+                            elif cell_value.startswith('•'):
+                                cell.font = Font(size=10, color="FF4444")  # Red for risk factors
+                                cell.alignment = Alignment(horizontal='left', vertical='center')
+                            
+                            # Definitions
+                            elif ':' in cell_value and not any(keyword in cell_value for keyword in ['CURRENT DATE', 'DAYS RECORDED', 'VIX LEVEL', 'BUBBLE RISK', 'MARKET CONCENTRATION', 'S&P 500', '10-YEAR TREASURY', 'NVIDIA DOMINANCE']):
+                                cell.font = Font(bold=True, size=11)
+                                cell.alignment = Alignment(horizontal='left', vertical='center')
+                            
+                            # Data labels
+                            elif any(keyword in cell_value for keyword in ['CURRENT DATE', 'DAYS RECORDED', 'VIX LEVEL', 'BUBBLE RISK', 'MARKET CONCENTRATION', 'S&P 500', '10-YEAR TREASURY', 'NVIDIA DOMINANCE']):
+                                cell.font = Font(bold=True, size=11, color="2F4F4F")
+                                cell.alignment = Alignment(horizontal='left', vertical='center')
+                            
+                            # Regular data
                             else:
-                                # For data cells, consider the actual content length
-                                cell_length = len(str(cell.value))
-                                max_length = max(max_length, cell_length)
-                    except:
-                        pass
+                                cell.font = data_font
+                                cell.alignment = Alignment(horizontal='center', vertical='center')
+                        
+                        # Format numeric values with risk-based colors
+                        elif isinstance(cell.value, (int, float)) and cell.value != 0:
+                            # Apply risk-based background colors
+                            if cell.value > 50:  # High risk values
+                                cell.fill = PatternFill(start_color="FFB6C1", end_color="FFB6C1", fill_type="solid")
+                            elif cell.value > 30:  # Medium risk values
+                                cell.fill = PatternFill(start_color="FFE4B5", end_color="FFE4B5", fill_type="solid")
+                            elif cell.value > 15:  # Low risk values
+                                cell.fill = PatternFill(start_color="E6FFE6", end_color="E6FFE6", fill_type="solid")
+                            else:  # Very low risk values
+                                cell.fill = PatternFill(start_color="F8F8F8", end_color="F8F8F8", fill_type="solid")
+                            
+                            cell.font = data_font
+                            cell.alignment = Alignment(horizontal='center', vertical='center')
                 
-                # Set minimum widths for different column types
-                min_widths = {
-                    'A': 12,  # Date column
-                    'B': 10,  # Time column
-                    'C': 20,  # Timestamp column
-                    'D': 12,  # VIX level
-                    'E': 15,  # VIX interpretation
-                    'F': 15,  # S&P 500 price
-                    'G': 15,  # S&P 500 P/E
-                    'H': 20,  # Market concentration
-                    'I': 15,  # Ten year treasury
-                    'J': 20,  # Fed funds rate
-                    'K': 15,  # Bubble risk score
-                    'L': 20,  # Bubble risk level
-                    'M': 30,  # Risk factors
-                }
-                
-                # Get the minimum width for this column
-                min_width = min_widths.get(column_letter, 15)
-                
-                # Calculate final width (max of calculated length + 2, minimum width, but cap at 60)
-                final_width = max(max_length + 2, min_width)
-                final_width = min(final_width, 60)  # Cap at 60 characters
-                
-                ws.column_dimensions[column_letter].width = final_width
-            
-            wb.save(filepath)
-            self.logger.info("Applied beautiful conditional formatting to Excel file")
-            
+                wb.save(filepath)
+                self.logger.info("Applied dashboard formatting to Summary sheet")
+                return
+
         except Exception as e:
             self.logger.error(f"Error applying formatting: {e}")
 
@@ -778,8 +954,24 @@ class BubbleIndicatorScraper:
             timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
             daily_backup_file = os.path.join(self.daily_backups_dir, f"bubble_indicators_dataset_{timestamp}.xlsx")
             
+            # Create workbook with multiple sheets
+            wb = Workbook()
+            
+            # Remove default sheet
+            wb.remove(wb.active)
+            
+            # Create summary sheet (sheet 1)
+            self.create_summary_sheet(df, wb)
+            
+            # Create main dataset sheet (sheet 2)
+            ws_data = wb.create_sheet('Dataset', 1)
+            
+            # Add data to dataset sheet
+            for r in dataframe_to_rows(df, index=False, header=True):
+                ws_data.append(r)
+            
             # Save main file to OneDrive
-            df.to_excel(self.master_file, index=False, engine='openpyxl')
+            wb.save(self.master_file)
             self.logger.info(f"Bubble indicators saved to: {self.master_file}")
             saved_locations.append(self.master_file)
             
@@ -787,7 +979,7 @@ class BubbleIndicatorScraper:
             self.apply_conditional_formatting(self.master_file)
             
             # Save daily timestamped backup
-            df.to_excel(daily_backup_file, index=False, engine='openpyxl')
+            wb.save(daily_backup_file)
             self.logger.info(f"Daily backup saved to: {daily_backup_file}")
             saved_locations.append(daily_backup_file)
             
@@ -797,7 +989,7 @@ class BubbleIndicatorScraper:
             # Save to Downloads location (if available)
             if self.downloads_file:
                 try:
-                    df.to_excel(self.downloads_file, index=False, engine='openpyxl')
+                    wb.save(self.downloads_file)
                     self.logger.info(f"Bubble indicators saved to: {self.downloads_file}")
                     saved_locations.append(self.downloads_file)
                     
@@ -814,10 +1006,11 @@ class BubbleIndicatorScraper:
                 print(f"Latest data: {latest['date']} at {latest['time']}")
                 print(f"Current VIX: {latest.get('vix_level', 'N/A')} ({latest.get('vix_interpretation', 'N/A')})")
                 print(f"Bubble Risk Level: {latest.get('bubble_risk_level', 'N/A')} (Score: {latest.get('bubble_risk_score', 'N/A')})")
-                print(f"Market Concentration: {latest.get('concentration_ratio', 'N/A'):.1f}%")
+                print(f"Market Concentration: {latest.get('concentration_ratio', 'N/A'):.1f}% (Top 10 vs S&P 500)")
                 print(f"S&P 500 Price: ${latest.get('sp500_price', 'N/A'):,.2f}" if latest.get('sp500_price') else "S&P 500 Price: N/A")
                 print(f"10-Year Treasury: {latest.get('ten_year_treasury', 'N/A')}%")
                 print(f"NVIDIA Dominance: {latest.get('nvidia_dominance_ratio', 'N/A'):.1f}%")
+                print(f"Top 10 Market Cap: ${latest.get('top_10_market_cap', 'N/A'):,.0f}" if latest.get('top_10_market_cap') else "Top 10 Market Cap: N/A")
                 
                 # Show risk factors
                 risk_factors = latest.get('risk_factors', '')
