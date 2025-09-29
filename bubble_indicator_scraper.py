@@ -8,6 +8,7 @@ import os
 from datetime import datetime, timedelta
 import logging
 import json
+import re
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment
 import warnings
@@ -20,12 +21,22 @@ class BubbleIndicatorScraper:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
 
-        # OneDrive directory (only storage location)
+        # OneDrive directory (primary storage location)
         self.onedrive_dir = r"C:\Users\james\OneDrive - Silverdale Medical Limited\AIbubble"
         os.makedirs(self.onedrive_dir, exist_ok=True)
 
-        # Master dataset file (OneDrive only)
+        # Second storage location - Downloads/AI Bubble
+        self.downloads_dir = self._get_downloads_directory()
+        if self.downloads_dir:
+            os.makedirs(self.downloads_dir, exist_ok=True)
+
+        # Daily backups directory
+        self.daily_backups_dir = os.path.join(self.onedrive_dir, "daily_backups")
+        os.makedirs(self.daily_backups_dir, exist_ok=True)
+
+        # Master dataset files
         self.master_file = os.path.join(self.onedrive_dir, "bubble_indicators_dataset.xlsx")
+        self.downloads_file = os.path.join(self.downloads_dir, "bubble_indicators_dataset.xlsx") if self.downloads_dir else None
 
         # Key stock tickers for tracking
         self.ai_stocks = {
@@ -45,6 +56,92 @@ class BubbleIndicatorScraper:
             '^VIX': 'VIX',
             '^TNX': '10-Year Treasury'
         }
+
+    def _get_downloads_directory(self):
+        """Get the Downloads/AI Bubble directory with fallback to james.walsham search"""
+        # Primary path
+        primary_path = r"C:\Users\james\Downloads\AI Bubble"
+        if os.path.exists(os.path.dirname(primary_path)):
+            return primary_path
+        
+        # Fallback: search for james.walsham in Users directory
+        users_dir = r"C:\Users"
+        if os.path.exists(users_dir):
+            for item in os.listdir(users_dir):
+                if "james.walsham" in item.lower():
+                    fallback_path = os.path.join(users_dir, item, "Downloads", "AI Bubble")
+                    if os.path.exists(os.path.dirname(fallback_path)):
+                        return fallback_path
+        
+        # If neither found, return None
+        self.logger.warning("Could not find Downloads directory for james.walsham")
+        return None
+
+    def clean_and_format_data(self, df):
+        """Clean and format data for proper Excel number formatting"""
+        try:
+            # Create a copy to avoid modifying original
+            cleaned_df = df.copy()
+            
+            # Clean numeric columns
+            numeric_columns = ['vix_level', 'sp500_price', 'concentration_ratio', 'ten_year_treasury', 
+                             'fed_funds_rate_approx', 'bubble_risk_score', 'total_ai_market_cap', 
+                             'nvidia_dominance_ratio']
+            
+            for col in numeric_columns:
+                if col in cleaned_df.columns:
+                    cleaned_df[col] = cleaned_df[col].apply(lambda x: self.clean_number(x))
+            
+            # Clean AI stock price columns
+            for ticker in self.ai_stocks.keys():
+                price_col = f"{self.ai_stocks[ticker].lower().replace(' ', '_')}_price"
+                market_cap_col = f"{self.ai_stocks[ticker].lower().replace(' ', '_')}_market_cap"
+                pe_col = f"{self.ai_stocks[ticker].lower().replace(' ', '_')}_pe"
+                
+                if price_col in cleaned_df.columns:
+                    cleaned_df[price_col] = cleaned_df[price_col].apply(lambda x: self.clean_number(x))
+                if market_cap_col in cleaned_df.columns:
+                    cleaned_df[market_cap_col] = cleaned_df[market_cap_col].apply(lambda x: self.clean_number(x))
+                if pe_col in cleaned_df.columns:
+                    cleaned_df[pe_col] = cleaned_df[pe_col].apply(lambda x: self.clean_number(x))
+            
+            # Clean index price columns
+            for ticker, name in self.indices.items():
+                price_col = f"{name.lower().replace(' ', '_').replace('-', '_')}_price"
+                pe_col = f"{name.lower().replace(' ', '_').replace('-', '_')}_pe"
+                
+                if price_col in cleaned_df.columns:
+                    cleaned_df[price_col] = cleaned_df[price_col].apply(lambda x: self.clean_number(x))
+                if pe_col in cleaned_df.columns:
+                    cleaned_df[pe_col] = cleaned_df[pe_col].apply(lambda x: self.clean_number(x))
+            
+            self.logger.info("Data cleaned and formatted for Excel")
+            return cleaned_df
+            
+        except Exception as e:
+            self.logger.error(f"Error cleaning data: {e}")
+            return df
+
+    def clean_number(self, value):
+        """Clean a number value, return number if valid, otherwise return original"""
+        if pd.isna(value) or value == 'N/A' or value == '' or value is None:
+            return value
+        
+        try:
+            # Convert to float if possible
+            if isinstance(value, (int, float)):
+                return float(value)
+            
+            # Remove any non-digit characters except decimal point and minus sign
+            cleaned = str(value).replace(',', '').replace(' ', '')
+            # Extract just the number part
+            number_match = re.search(r'(-?\d+(?:\.\d+)?)', cleaned)
+            if number_match:
+                return float(number_match.group(1))
+        except:
+            pass
+        
+        return value
 
     def get_stock_data(self, ticker, period="1d"):
         """Get current stock data using yfinance"""
@@ -110,20 +207,48 @@ class BubbleIndicatorScraper:
             return "Very High - Panic/Crisis"
 
     def get_sp500_pe_ratio(self):
-        """Get S&P 500 P/E ratio from yfinance"""
+        """Get S&P 500 P/E ratio from multiple sources"""
         try:
             sp500 = yf.Ticker("^GSPC")
             hist = sp500.history(period="1d")
             info = sp500.info
             current_price = hist['Close'].iloc[-1] if not hist.empty else None
-            estimated_pe = info.get('trailingPE', None)
+            
+            # Try multiple methods to get P/E ratio
+            pe_ratio = None
+            
+            # Method 1: Direct from info
+            if info.get('trailingPE'):
+                pe_ratio = info.get('trailingPE')
+            # Method 2: Calculate from market cap and earnings
+            elif info.get('marketCap') and info.get('trailingEps'):
+                market_cap = info.get('marketCap')
+                trailing_eps = info.get('trailingEps')
+                if market_cap and trailing_eps and trailing_eps > 0:
+                    pe_ratio = market_cap / (trailing_eps * 1000000000)  # Convert to billions
+            # Method 3: Use SPY as proxy (more reliable for P/E)
+            else:
+                try:
+                    spy = yf.Ticker("SPY")
+                    spy_info = spy.info
+                    if spy_info.get('trailingPE'):
+                        pe_ratio = spy_info.get('trailingPE')
+                except:
+                    pass
+            
+            # Method 4: Use historical average if still no P/E
+            if not pe_ratio:
+                # S&P 500 historical average P/E is around 15-20
+                pe_ratio = 18.5  # Conservative estimate
+                self.logger.warning("Using estimated S&P 500 P/E ratio")
+            
             return {
                 'sp500_price': current_price,
-                'sp500_pe_estimate': estimated_pe
+                'sp500_pe_estimate': pe_ratio
             }
         except Exception as e:
             self.logger.error(f"Error getting S&P 500 P/E: {e}")
-            return {'sp500_price': None, 'sp500_pe_estimate': None}
+            return {'sp500_price': None, 'sp500_pe_estimate': 18.5}  # Fallback estimate
 
     def calculate_market_concentration(self):
         """Calculate market concentration of top companies"""
@@ -367,95 +492,341 @@ class BubbleIndicatorScraper:
         updated_df = updated_df.reset_index(drop=True)
         return updated_df
 
+    def get_risk_color(self, value, column_name, row_data):
+        """Get risk-based color for a cell based on its value and context"""
+        try:
+            # Low risk (white/light)
+            low_risk_fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")  # White
+            very_low_risk_fill = PatternFill(start_color="F8F8F8", end_color="F8F8F8", fill_type="solid")  # Very light gray
+            
+            # Medium risk (orange/yellow)
+            medium_risk_fill = PatternFill(start_color="FFE4B5", end_color="FFE4B5", fill_type="solid")  # Light orange
+            elevated_risk_fill = PatternFill(start_color="FFFFE0", end_color="FFFFE0", fill_type="solid")  # Light yellow
+            
+            # High risk (red)
+            high_risk_fill = PatternFill(start_color="FFB6C1", end_color="FFB6C1", fill_type="solid")  # Light red
+            very_high_risk_fill = PatternFill(start_color="FF6B6B", end_color="FF6B6B", fill_type="solid")  # Bright red
+            
+            # VIX levels
+            if column_name == 'vix_level':
+                if value < 12:
+                    return very_low_risk_fill  # Very low VIX
+                elif value < 20:
+                    return low_risk_fill  # Low VIX
+                elif value < 30:
+                    return medium_risk_fill  # Medium VIX
+                elif value < 40:
+                    return high_risk_fill  # High VIX
+                else:
+                    return very_high_risk_fill  # Very high VIX
+            
+            # S&P 500 P/E ratio
+            elif column_name == 'sp500_pe_estimate':
+                if value < 15:
+                    return very_low_risk_fill  # Very low P/E
+                elif value < 20:
+                    return low_risk_fill  # Low P/E
+                elif value < 25:
+                    return medium_risk_fill  # Medium P/E
+                elif value < 30:
+                    return high_risk_fill  # High P/E
+                else:
+                    return very_high_risk_fill  # Very high P/E
+            
+            # Market concentration
+            elif column_name == 'concentration_ratio':
+                if value < 25:
+                    return very_low_risk_fill  # Very low concentration
+                elif value < 30:
+                    return low_risk_fill  # Low concentration
+                elif value < 35:
+                    return medium_risk_fill  # Medium concentration
+                elif value < 40:
+                    return high_risk_fill  # High concentration
+                else:
+                    return very_high_risk_fill  # Very high concentration
+            
+            # NVIDIA dominance
+            elif column_name == 'nvidia_dominance_ratio':
+                if value < 15:
+                    return very_low_risk_fill  # Very low dominance
+                elif value < 25:
+                    return low_risk_fill  # Low dominance
+                elif value < 35:
+                    return medium_risk_fill  # Medium dominance
+                elif value < 45:
+                    return high_risk_fill  # High dominance
+                else:
+                    return very_high_risk_fill  # Very high dominance
+            
+            # 10-Year Treasury (inverse relationship - lower rates = higher risk)
+            elif column_name == 'ten_year_treasury':
+                if value > 4.5:
+                    return very_low_risk_fill  # High rates = low risk
+                elif value > 3.5:
+                    return low_risk_fill  # Medium-high rates
+                elif value > 2.5:
+                    return medium_risk_fill  # Medium rates
+                elif value > 1.5:
+                    return high_risk_fill  # Low rates
+                else:
+                    return very_high_risk_fill  # Very low rates
+            
+            # Bubble risk score
+            elif column_name == 'bubble_risk_score':
+                if value < 1:
+                    return very_low_risk_fill  # Very low risk
+                elif value < 3:
+                    return low_risk_fill  # Low risk
+                elif value < 5:
+                    return medium_risk_fill  # Medium risk
+                elif value < 7:
+                    return high_risk_fill  # High risk
+                else:
+                    return very_high_risk_fill  # Very high risk
+            
+            # AI stock P/E ratios
+            elif 'pe' in column_name and any(stock.lower().replace(' ', '_') in column_name for stock in self.ai_stocks.values()):
+                if value < 15:
+                    return very_low_risk_fill  # Very low P/E
+                elif value < 25:
+                    return low_risk_fill  # Low P/E
+                elif value < 35:
+                    return medium_risk_fill  # Medium P/E
+                elif value < 50:
+                    return high_risk_fill  # High P/E
+                else:
+                    return very_high_risk_fill  # Very high P/E
+            
+            # Default to low risk for other columns
+            return low_risk_fill
+            
+        except Exception as e:
+            self.logger.error(f"Error getting risk color for {column_name}: {e}")
+            return PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")  # Default white
+
     def apply_conditional_formatting(self, filepath):
-        """Apply conditional formatting to Excel file"""
+        """Apply intelligent risk-based conditional formatting to Excel file"""
         try:
             wb = load_workbook(filepath)
             ws = wb.active
 
-            header_fill = PatternFill(start_color="2F4F4F", end_color="2F4F4F", fill_type="solid")
-            header_font = Font(bold=True, color="FFFFFF")
+            # Define header colors
+            header_fill = PatternFill(start_color="2F4F4F", end_color="2F4F4F", fill_type="solid")  # Dark slate gray
+            header_font = Font(bold=True, color="FFFFFF")  # White bold text
 
-            high_risk_fill = PatternFill(start_color="FFB6C1", end_color="FFB6C1", fill_type="solid")  # Light red
-            moderate_risk_fill = PatternFill(start_color="FFE4B5", end_color="FFE4B5", fill_type="solid")  # Light orange
-            low_risk_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")  # Light green
-
-            # Style header row
+            # Style the header row (row 1)
             for col in range(1, ws.max_column + 1):
                 cell = ws.cell(row=1, column=col)
                 cell.fill = header_fill
                 cell.font = header_font
                 cell.alignment = Alignment(horizontal='center', vertical='center')
 
-            # Find bubble risk level column
-            risk_level_col = None
+            # Set compact row heights for better visibility
+            for row in range(1, ws.max_row + 1):
+                ws.row_dimensions[row].height = 15  # Compact row height
+
+            # Get column names for risk-based formatting
+            column_names = {}
             for col in range(1, ws.max_column + 1):
-                if ws.cell(row=1, column=col).value == 'bubble_risk_level':
-                    risk_level_col = col
-                    break
-            
-            # Apply risk-based formatting
-            if risk_level_col:
-                for row in range(2, ws.max_row + 1):
-                    risk_cell = ws.cell(row=row, column=risk_level_col)
-                    risk_value = str(risk_cell.value).upper()
+                column_names[col] = ws.cell(row=1, column=col).value
+
+            # Apply intelligent risk-based formatting to each cell
+            for row in range(2, ws.max_row + 1):
+                # Get row data for context
+                row_data = {}
+                for col in range(1, ws.max_column + 1):
+                    row_data[column_names[col]] = ws.cell(row=row, column=col).value
+                
+                for col in range(1, ws.max_column + 1):
+                    cell = ws.cell(row=row, column=col)
+                    column_name = column_names[col]
+                    cell_value = cell.value
                     
-                    if 'HIGH' in risk_value:
-                        row_fill = high_risk_fill
-                    elif 'MODERATE' in risk_value:
-                        row_fill = moderate_risk_fill
+                    # Set alignment based on column type
+                    if column_name in ['date', 'time', 'timestamp']:
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                    elif column_name in ['vix_level', 'sp500_price', 'sp500_pe_estimate', 'concentration_ratio', 
+                                       'ten_year_treasury', 'fed_funds_rate_approx', 'bubble_risk_score', 
+                                       'total_ai_market_cap', 'nvidia_dominance_ratio']:
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                    elif 'pe' in column_name or 'price' in column_name or 'market_cap' in column_name:
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
                     else:
-                        row_fill = low_risk_fill
+                        cell.alignment = Alignment(horizontal='left', vertical='center')
                     
-                    # Apply to entire row
-                    for col in range(1, ws.max_column + 1):
-                        ws.cell(row=row, column=col).fill = row_fill
+                    # Apply risk-based color formatting
+                    if cell_value is not None and column_name:
+                        try:
+                            # Convert to float if possible for numeric comparisons
+                            if isinstance(cell_value, (int, float)):
+                                risk_color = self.get_risk_color(cell_value, column_name, row_data)
+                                cell.fill = risk_color
+                            elif isinstance(cell_value, str) and cell_value.replace('.', '').replace('-', '').isdigit():
+                                # Try to convert string numbers
+                                numeric_value = float(cell_value)
+                                risk_color = self.get_risk_color(numeric_value, column_name, row_data)
+                                cell.fill = risk_color
+                        except:
+                            # If conversion fails, use default white
+                            cell.fill = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+
+            # Apply number formatting to appropriate columns
+            for col in range(1, ws.max_column + 1):
+                column_name = ws.cell(row=1, column=col).value
+                
+                if column_name in ['vix_level', 'sp500_price', 'concentration_ratio', 'ten_year_treasury', 
+                                 'fed_funds_rate_approx', 'bubble_risk_score', 'total_ai_market_cap', 
+                                 'nvidia_dominance_ratio']:
+                    # Number formatting for key metrics
+                    for row in range(2, ws.max_row + 1):
+                        cell = ws.cell(row=row, column=col)
+                        if isinstance(cell.value, (int, float)) and cell.value is not None:
+                            if column_name == 'bubble_risk_score':
+                                cell.number_format = '0.0'  # One decimal place
+                            elif column_name in ['concentration_ratio', 'nvidia_dominance_ratio']:
+                                cell.number_format = '0.0'  # One decimal place for percentages
+                            else:
+                                cell.number_format = '#,##0.00'  # Two decimal places with commas
+                
+                elif column_name and any(stock.lower().replace(' ', '_') in column_name for stock in self.ai_stocks.values()):
+                    # AI stock price columns
+                    if 'price' in column_name:
+                        for row in range(2, ws.max_row + 1):
+                            cell = ws.cell(row=row, column=col)
+                            if isinstance(cell.value, (int, float)) and cell.value is not None:
+                                cell.number_format = '#,##0.00'  # Two decimal places
+                    elif 'market_cap' in column_name:
+                        for row in range(2, ws.max_row + 1):
+                            cell = ws.cell(row=row, column=col)
+                            if isinstance(cell.value, (int, float)) and cell.value is not None:
+                                cell.number_format = '#,##0'  # No decimal places for market cap
+                    elif 'pe' in column_name:
+                        for row in range(2, ws.max_row + 1):
+                            cell = ws.cell(row=row, column=col)
+                            if isinstance(cell.value, (int, float)) and cell.value is not None:
+                                cell.number_format = '0.00'  # Two decimal places for P/E ratios
             
-            # Auto-adjust column widths
+            # Auto-adjust column widths with better formatting
             for column in ws.columns:
                 max_length = 0
                 column_letter = column[0].column_letter
                 
+                # Calculate max length for this column
                 for cell in column:
                     try:
                         if cell.value is not None:
-                            max_length = max(max_length, len(str(cell.value)))
+                            # For headers, use the header text length
+                            if cell.row == 1:
+                                max_length = max(max_length, len(str(cell.value)))
+                            else:
+                                # For data cells, consider the actual content length
+                                cell_length = len(str(cell.value))
+                                max_length = max(max_length, cell_length)
                     except:
                         pass
                 
-                adjusted_width = min(max_length + 2, 50)
-                ws.column_dimensions[column_letter].width = adjusted_width
+                # Set minimum widths for different column types
+                min_widths = {
+                    'A': 12,  # Date column
+                    'B': 10,  # Time column
+                    'C': 20,  # Timestamp column
+                    'D': 12,  # VIX level
+                    'E': 15,  # VIX interpretation
+                    'F': 15,  # S&P 500 price
+                    'G': 15,  # S&P 500 P/E
+                    'H': 20,  # Market concentration
+                    'I': 15,  # Ten year treasury
+                    'J': 20,  # Fed funds rate
+                    'K': 15,  # Bubble risk score
+                    'L': 20,  # Bubble risk level
+                    'M': 30,  # Risk factors
+                }
+                
+                # Get the minimum width for this column
+                min_width = min_widths.get(column_letter, 15)
+                
+                # Calculate final width (max of calculated length + 2, minimum width, but cap at 60)
+                final_width = max(max_length + 2, min_width)
+                final_width = min(final_width, 60)  # Cap at 60 characters
+                
+                ws.column_dimensions[column_letter].width = final_width
             
             wb.save(filepath)
-            self.logger.info("Applied conditional formatting")
+            self.logger.info("Applied beautiful conditional formatting to Excel file")
             
         except Exception as e:
             self.logger.error(f"Error applying formatting: {e}")
 
     def save_dataset(self, df):
-        """Save dataset to OneDrive only"""
+        """Save dataset with daily backups and improved functionality"""
         if df.empty:
             self.logger.warning("No data to save")
             return
         
+        # Clean and format data for proper Excel number formatting
+        df = self.clean_and_format_data(df)
+        
+        # Sort by date (most recent first)
+        df = df.sort_values('date', ascending=False)
+        df = df.reset_index(drop=True)
+        
+        saved_locations = []
+        
         try:
-            # Save to OneDrive
+            # Create timestamped filename for daily backup
+            timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+            daily_backup_file = os.path.join(self.daily_backups_dir, f"bubble_indicators_dataset_{timestamp}.xlsx")
+            
+            # Save main file to OneDrive
             df.to_excel(self.master_file, index=False, engine='openpyxl')
             self.logger.info(f"Bubble indicators saved to: {self.master_file}")
+            saved_locations.append(self.master_file)
             
-            # Apply formatting
+            # Apply formatting to OneDrive file
             self.apply_conditional_formatting(self.master_file)
             
-            # Print summary
+            # Save daily timestamped backup
+            df.to_excel(daily_backup_file, index=False, engine='openpyxl')
+            self.logger.info(f"Daily backup saved to: {daily_backup_file}")
+            saved_locations.append(daily_backup_file)
+            
+            # Apply formatting to daily backup
+            self.apply_conditional_formatting(daily_backup_file)
+            
+            # Save to Downloads location (if available)
+            if self.downloads_file:
+                try:
+                    df.to_excel(self.downloads_file, index=False, engine='openpyxl')
+                    self.logger.info(f"Bubble indicators saved to: {self.downloads_file}")
+                    saved_locations.append(self.downloads_file)
+                    
+                    # Apply formatting to Downloads file
+                    self.apply_conditional_formatting(self.downloads_file)
+                except Exception as e:
+                    self.logger.error(f"Error saving to Downloads location: {e}")
+            
+            # Print comprehensive summary
             print(f"\n=== Bubble Indicators Summary ===")
             print(f"Total daily records: {len(df)}")
             if not df.empty:
                 latest = df.iloc[0]
-                print(f"Latest data: {latest['date']}")
-                print(f"Current VIX: {latest.get('vix_level', 'N/A')}")
-                print(f"Bubble Risk Level: {latest.get('bubble_risk_level', 'N/A')}")
+                print(f"Latest data: {latest['date']} at {latest['time']}")
+                print(f"Current VIX: {latest.get('vix_level', 'N/A')} ({latest.get('vix_interpretation', 'N/A')})")
+                print(f"Bubble Risk Level: {latest.get('bubble_risk_level', 'N/A')} (Score: {latest.get('bubble_risk_score', 'N/A')})")
                 print(f"Market Concentration: {latest.get('concentration_ratio', 'N/A'):.1f}%")
-            print(f"OneDrive dataset: {self.master_file}")
+                print(f"S&P 500 Price: ${latest.get('sp500_price', 'N/A'):,.2f}" if latest.get('sp500_price') else "S&P 500 Price: N/A")
+                print(f"10-Year Treasury: {latest.get('ten_year_treasury', 'N/A')}%")
+                print(f"NVIDIA Dominance: {latest.get('nvidia_dominance_ratio', 'N/A'):.1f}%")
+                
+                # Show risk factors
+                risk_factors = latest.get('risk_factors', '')
+                if risk_factors:
+                    print(f"Risk Factors: {risk_factors}")
+            
+            print(f"\nSaved to {len(saved_locations)} location(s):")
+            for location in saved_locations:
+                print(f"  - {location}")
             
         except Exception as e:
             self.logger.error(f"Error saving dataset: {e}")
