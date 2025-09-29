@@ -827,16 +827,13 @@ class BubbleIndicatorScraper:
             if 'Dataset' in wb.sheetnames:
                 ws = wb['Dataset']
                 
-                # Simple header formatting for dataset
-                header_fill = PatternFill(start_color="2F4F4F", end_color="2F4F4F", fill_type="solid")
-                header_font = Font(bold=True, color="FFFFFF")
-                
-                # Style header row only
-                for col in range(1, ws.max_column + 1):
-                    cell = ws.cell(row=1, column=col)
-                    cell.fill = header_fill
-                    cell.font = header_font
-                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                # Simple header formatting only
+                if ws.max_row > 0:
+                    # Format header row only
+                    for col in range(1, ws.max_column + 1):
+                        cell = ws.cell(row=1, column=col)
+                        cell.font = Font(bold=True)
+                        cell.fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
                 
                 # Auto-adjust column widths
                 for column in ws.columns:
@@ -966,9 +963,17 @@ class BubbleIndicatorScraper:
             # Create main dataset sheet (sheet 2)
             ws_data = wb.create_sheet('Dataset', 1)
             
-            # Add data to dataset sheet
-            for r in dataframe_to_rows(df, index=False, header=True):
-                ws_data.append(r)
+            # Add only the latest daily data to dataset sheet
+            if not df.empty:
+                latest_row = df.iloc[0]  # Get the most recent record
+                # Add headers if this is the first row
+                if ws_data.max_row == 1:  # Empty sheet
+                    headers = list(latest_row.index)
+                    ws_data.append(headers)
+                
+                # Add the latest data row
+                data_row = [latest_row[col] for col in latest_row.index]
+                ws_data.append(data_row)
             
             # Save main file to OneDrive
             wb.save(self.master_file)
