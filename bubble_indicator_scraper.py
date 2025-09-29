@@ -221,9 +221,22 @@ class BubbleIndicatorScraper:
                                     data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
                                     data[f"{company.lower().replace(' ', '_')}_pe"] = None
                                 else:
-                                    data[f"{company.lower().replace(' ', '_')}_price"] = None
-                                    data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
-                                    data[f"{company.lower().replace(' ', '_')}_pe"] = None
+                                    # Find the closest available date
+                                    available_dates = monthly_stock.index
+                                    closest_date = min(available_dates, key=lambda x: abs((x - date).days))
+                                    if abs((closest_date - date).days) <= 7:  # Within a week
+                                        stock_row = monthly_stock.loc[closest_date]
+                                        data[f"{company.lower().replace(' ', '_')}_price"] = stock_row['Close']
+                                        data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
+                                        data[f"{company.lower().replace(' ', '_')}_pe"] = None
+                                    else:
+                                        data[f"{company.lower().replace(' ', '_')}_price"] = None
+                                        data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
+                                        data[f"{company.lower().replace(' ', '_')}_pe"] = None
+                            else:
+                                data[f"{company.lower().replace(' ', '_')}_price"] = None
+                                data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
+                                data[f"{company.lower().replace(' ', '_')}_pe"] = None
                         except:
                             data[f"{company.lower().replace(' ', '_')}_price"] = None
                             data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
@@ -254,9 +267,17 @@ class BubbleIndicatorScraper:
                 monthly_vix = vix_hist.resample('M').last()
                 for hist_data in historical_data:
                     target_date = datetime.strptime(hist_data['date'], '%Y-%m-%d')
+                    # Find closest date if exact match not found
                     if target_date in monthly_vix.index:
                         hist_data['vix_level'] = monthly_vix.loc[target_date]['Close']
                         hist_data['vix_interpretation'] = self.interpret_vix(hist_data['vix_level'])
+                    else:
+                        # Find the closest available date
+                        available_dates = monthly_vix.index
+                        closest_date = min(available_dates, key=lambda x: abs((x - target_date).days))
+                        if abs((closest_date - target_date).days) <= 7:  # Within a week
+                            hist_data['vix_level'] = monthly_vix.loc[closest_date]['Close']
+                            hist_data['vix_interpretation'] = self.interpret_vix(hist_data['vix_level'])
             
             # Add 10-Year Treasury historical data
             tnx_hist = self.get_historical_data("^TNX", "10y")
@@ -264,8 +285,15 @@ class BubbleIndicatorScraper:
                 monthly_tnx = tnx_hist.resample('M').last()
                 for hist_data in historical_data:
                     target_date = datetime.strptime(hist_data['date'], '%Y-%m-%d')
+                    # Find closest date if exact match not found
                     if target_date in monthly_tnx.index:
                         hist_data['ten_year_treasury'] = monthly_tnx.loc[target_date]['Close']
+                    else:
+                        # Find the closest available date
+                        available_dates = monthly_tnx.index
+                        closest_date = min(available_dates, key=lambda x: abs((x - target_date).days))
+                        if abs((closest_date - target_date).days) <= 7:  # Within a week
+                            hist_data['ten_year_treasury'] = monthly_tnx.loc[closest_date]['Close']
             
             # Convert historical data to DataFrame
             hist_df = pd.DataFrame(historical_data)
