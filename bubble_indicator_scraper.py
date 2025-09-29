@@ -966,13 +966,30 @@ class BubbleIndicatorScraper:
             # Add only the latest daily data to dataset sheet
             if not df.empty:
                 latest_row = df.iloc[0]  # Get the most recent record
+                
+                # Define the proper column order for the dataset
+                proper_columns = [
+                    'date', 'time', 'timestamp', 'vix_level', 'vix_interpretation',
+                    'sp500_price', 'sp500_pe_estimate', 'top_10_market_cap', 'sp500_total_market_cap',
+                    'concentration_ratio', 'company_breakdown', 'ten_year_treasury', 'fed_funds_rate_approx',
+                    'nvidia_price', 'nvidia_market_cap', 'nvidia_pe',
+                    'microsoft_price', 'microsoft_market_cap', 'microsoft_pe',
+                    'alphabet_price', 'alphabet_market_cap', 'alphabet_pe',
+                    'apple_price', 'apple_market_cap', 'apple_pe',
+                    'amazon_price', 'amazon_market_cap', 'amazon_pe',
+                    'meta_price', 'meta_market_cap', 'meta_pe',
+                    'tesla_price', 'tesla_market_cap', 'tesla_pe',
+                    'total_ai_market_cap', 'nvidia_dominance_ratio',
+                    'bubble_risk_score', 'bubble_risk_level', 'risk_factors',
+                    's&p_500_price', 'nasdaq_price', 'vix_price', '10_year_treasury_price'
+                ]
+                
                 # Add headers if this is the first row
                 if ws_data.max_row == 1:  # Empty sheet
-                    headers = list(latest_row.index)
-                    ws_data.append(headers)
+                    ws_data.append(proper_columns)
                 
-                # Add the latest data row
-                data_row = [latest_row[col] for col in latest_row.index]
+                # Add the latest data row in proper order
+                data_row = [latest_row.get(col, '') for col in proper_columns]
                 ws_data.append(data_row)
             
             # Save main file to OneDrive
