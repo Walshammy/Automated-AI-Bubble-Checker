@@ -44,6 +44,9 @@ class BubbleIndicatorScraper:
         
         # Combined dataset file (historical + current)
         self.combined_file = os.path.join(self.onedrive_dir, "bubble_indicators_combined.xlsx")
+        
+        # Historical progress tracking
+        self.historical_progress_file = os.path.join(self.onedrive_dir, "historical_progress.json")
 
         # Key stock tickers for tracking
         self.ai_stocks = {
@@ -159,8 +162,12 @@ class BubbleIndicatorScraper:
         return value
 
     def get_historical_data(self, ticker, period="10y"):
-        """Get historical data for a ticker over specified period"""
+        """Get historical data for a ticker over specified period with API rate limiting"""
         try:
+            import time
+            # Small delay to respect API limits
+            time.sleep(0.1)  # 100ms delay between requests
+            
             stock = yf.Ticker(ticker)
             hist = stock.history(period=period)
             return hist
@@ -168,8 +175,39 @@ class BubbleIndicatorScraper:
             self.logger.error(f"Error getting historical data for {ticker}: {e}")
             return None
 
+    def load_historical_progress(self):
+        """Load historical data collection progress"""
+        try:
+            if os.path.exists(self.historical_progress_file):
+                with open(self.historical_progress_file, 'r') as f:
+                    return json.load(f)
+            else:
+                # Initialize progress tracking
+                return {
+                    'last_historical_date': None,
+                    'total_historical_records': 0,
+                    'target_start_date': '2015-01-01',
+                    'days_per_run': 180  # Add 180 days (6 months) of historical data per run
+                }
+        except Exception as e:
+            self.logger.error(f"Error loading historical progress: {e}")
+            return {
+                'last_historical_date': None,
+                'total_historical_records': 0,
+                'target_start_date': '2015-01-01',
+                'days_per_run': 180  # Add 180 days (6 months) of historical data per run
+            }
+
+    def save_historical_progress(self, progress):
+        """Save historical data collection progress"""
+        try:
+            with open(self.historical_progress_file, 'w') as f:
+                json.dump(progress, f, indent=2)
+        except Exception as e:
+            self.logger.error(f"Error saving historical progress: {e}")
+
     def create_combined_dataset(self):
-        """Create combined historical + current dataset"""
+        """Create combined historical + current dataset with incremental historical data"""
         try:
             self.logger.info("Creating combined historical + current dataset")
             
@@ -177,16 +215,109 @@ class BubbleIndicatorScraper:
             current_data = self.collect_all_metrics()
             current_df = pd.DataFrame([current_data])
             
-            # Get historical data (last 10 years, monthly samples)
+            # Load existing historical data
+            existing_historical_df = self.load_existing_historical_data()
+            
+            # Get progress tracking
+            progress = self.load_historical_progress()
+            
+            # Add incremental historical data
+            new_historical_data = self.add_incremental_historical_data(progress)
+            
+            # Combine all historical data
+            if not existing_historical_df.empty and not new_historical_data.empty:
+                all_historical_df = pd.concat([existing_historical_df, new_historical_data], ignore_index=True)
+            elif not existing_historical_df.empty:
+                all_historical_df = existing_historical_df
+            elif not new_historical_data.empty:
+                all_historical_df = new_historical_data
+            else:
+                all_historical_df = pd.DataFrame()
+            
+            # Remove duplicates and sort
+            if not all_historical_df.empty:
+                all_historical_df = all_historical_df.drop_duplicates(subset=['date'])
+                all_historical_df = all_historical_df.sort_values('date')
+                all_historical_df = all_historical_df.reset_index(drop=True)
+            
+            # Mark current data
+            current_df['is_historical'] = False
+            
+            # Combine historical and current data
+            if not all_historical_df.empty:
+                combined_df = pd.concat([all_historical_df, current_df], ignore_index=True)
+            else:
+                combined_df = current_df
+            
+            # Sort by date (oldest first)
+            combined_df = combined_df.sort_values('date')
+            combined_df = combined_df.reset_index(drop=True)
+            
+            # Clean and format data
+            combined_df = self.clean_and_format_data(combined_df)
+            
+            # Save combined dataset
+            self.save_combined_dataset(combined_df)
+            
+            # Update progress
+            if not new_historical_data.empty:
+                progress['total_historical_records'] = len(all_historical_df)
+                progress['last_historical_date'] = all_historical_df['date'].max()
+                self.save_historical_progress(progress)
+            
+            self.logger.info(f"Created combined dataset with {len(combined_df)} records ({len(all_historical_df)} historical + {len(current_df)} current)")
+            return combined_df
+            
+        except Exception as e:
+            self.logger.error(f"Error creating combined dataset: {e}")
+            return pd.DataFrame()
+
+    def load_existing_historical_data(self):
+        """Load existing historical data from combined file"""
+        try:
+            if os.path.exists(self.combined_file):
+                df = pd.read_excel(self.combined_file, sheet_name='Combined Data')
+                historical_df = df[df['is_historical'] == True] if 'is_historical' in df.columns else pd.DataFrame()
+                return historical_df
+            return pd.DataFrame()
+        except Exception as e:
+            self.logger.error(f"Error loading existing historical data: {e}")
+            return pd.DataFrame()
+
+    def add_incremental_historical_data(self, progress):
+        """Add a few days of historical data incrementally"""
+        try:
+            # Determine date range for this run
+            if progress['last_historical_date']:
+                start_date = pd.to_datetime(progress['last_historical_date']) + pd.Timedelta(days=1)
+            else:
+                start_date = pd.to_datetime(progress['target_start_date'])
+            
+            end_date = start_date + pd.Timedelta(days=progress['days_per_run'])
+            today = pd.Timestamp.now().normalize()
+            
+            # Don't go beyond today
+            if end_date > today:
+                end_date = today
+            
+            if start_date >= today:
+                self.logger.info("Historical data collection complete - reached current date")
+                return pd.DataFrame()
+            
+            self.logger.info(f"Adding historical data from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+            
             historical_data = []
             
-            # Get S&P 500 historical data (monthly)
+            # Get S&P 500 historical data for the date range
             sp500_hist = self.get_historical_data("^GSPC", "10y")
             if sp500_hist is not None and not sp500_hist.empty:
-                # Sample monthly data
-                monthly_data = sp500_hist.resample('M').last()
+                # Convert timezone-aware index to timezone-naive for comparison
+                sp500_hist.index = sp500_hist.index.tz_localize(None) if sp500_hist.index.tz else sp500_hist.index
                 
-                for date, row in monthly_data.iterrows():
+                # Filter to our date range
+                date_range_data = sp500_hist[(sp500_hist.index >= start_date) & (sp500_hist.index <= end_date)]
+                
+                for date, row in date_range_data.iterrows():
                     data = {
                         'date': date.strftime('%Y-%m-%d'),
                         'time': '00:00:00',
@@ -206,38 +337,25 @@ class BubbleIndicatorScraper:
                         'company_breakdown': None,
                         'top_10_market_cap': None,
                         'sp500_total_market_cap': None,
-                        'is_historical': True  # Flag for historical data
+                        'is_historical': True
                     }
                     
-                    # Add AI stock data for this date
+                    # Add AI stock data for this date (simplified for incremental approach)
                     for ticker, company in self.ai_stocks.items():
                         try:
                             stock_hist = self.get_historical_data(ticker, "10y")
                             if stock_hist is not None and not stock_hist.empty:
-                                monthly_stock = stock_hist.resample('M').last()
-                                if date in monthly_stock.index:
-                                    stock_row = monthly_stock.loc[date]
+                                if date in stock_hist.index:
+                                    stock_row = stock_hist.loc[date]
                                     data[f"{company.lower().replace(' ', '_')}_price"] = stock_row['Close']
-                                    data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
-                                    data[f"{company.lower().replace(' ', '_')}_pe"] = None
                                 else:
-                                    # Find the closest available date
-                                    available_dates = monthly_stock.index
-                                    closest_date = min(available_dates, key=lambda x: abs((x - date).days))
-                                    if abs((closest_date - date).days) <= 7:  # Within a week
-                                        stock_row = monthly_stock.loc[closest_date]
-                                        data[f"{company.lower().replace(' ', '_')}_price"] = stock_row['Close']
-                                        data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
-                                        data[f"{company.lower().replace(' ', '_')}_pe"] = None
-                                    else:
-                                        data[f"{company.lower().replace(' ', '_')}_price"] = None
-                                        data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
-                                        data[f"{company.lower().replace(' ', '_')}_pe"] = None
+                                    data[f"{company.lower().replace(' ', '_')}_price"] = None
                             else:
                                 data[f"{company.lower().replace(' ', '_')}_price"] = None
-                                data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
-                                data[f"{company.lower().replace(' ', '_')}_pe"] = None
-                        except:
+                            data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
+                            data[f"{company.lower().replace(' ', '_')}_pe"] = None
+                        except Exception as e:
+                            self.logger.warning(f"Error getting {ticker} data for {date}: {e}")
                             data[f"{company.lower().replace(' ', '_')}_price"] = None
                             data[f"{company.lower().replace(' ', '_')}_market_cap"] = None
                             data[f"{company.lower().replace(' ', '_')}_pe"] = None
@@ -247,78 +365,58 @@ class BubbleIndicatorScraper:
                         try:
                             index_hist = self.get_historical_data(ticker, "10y")
                             if index_hist is not None and not index_hist.empty:
-                                monthly_index = index_hist.resample('M').last()
-                                if date in monthly_index.index:
-                                    index_row = monthly_index.loc[date]
+                                if date in index_hist.index:
+                                    index_row = index_hist.loc[date]
                                     safe_name = name.lower().replace(' ', '_').replace('-', '_')
                                     data[f"{safe_name}_price"] = index_row['Close']
                                 else:
                                     safe_name = name.lower().replace(' ', '_').replace('-', '_')
                                     data[f"{safe_name}_price"] = None
-                        except:
+                            else:
+                                safe_name = name.lower().replace(' ', '_').replace('-', '_')
+                                data[f"{safe_name}_price"] = None
+                        except Exception as e:
+                            self.logger.warning(f"Error getting {ticker} data for {date}: {e}")
                             safe_name = name.lower().replace(' ', '_').replace('-', '_')
                             data[f"{safe_name}_price"] = None
                     
                     historical_data.append(data)
             
-            # Add VIX historical data
-            vix_hist = self.get_historical_data("^VIX", "10y")
-            if vix_hist is not None and not vix_hist.empty:
-                monthly_vix = vix_hist.resample('M').last()
-                for hist_data in historical_data:
-                    target_date = datetime.strptime(hist_data['date'], '%Y-%m-%d')
-                    # Find closest date if exact match not found
-                    if target_date in monthly_vix.index:
-                        hist_data['vix_level'] = monthly_vix.loc[target_date]['Close']
-                        hist_data['vix_interpretation'] = self.interpret_vix(hist_data['vix_level'])
-                    else:
-                        # Find the closest available date
-                        available_dates = monthly_vix.index
-                        closest_date = min(available_dates, key=lambda x: abs((x - target_date).days))
-                        if abs((closest_date - target_date).days) <= 7:  # Within a week
-                            hist_data['vix_level'] = monthly_vix.loc[closest_date]['Close']
+            # Add VIX and Treasury data for the date range
+            try:
+                vix_hist = self.get_historical_data("^VIX", "10y")
+                if vix_hist is not None and not vix_hist.empty:
+                    # Convert timezone-aware index to timezone-naive for comparison
+                    vix_hist.index = vix_hist.index.tz_localize(None) if vix_hist.index.tz else vix_hist.index
+                    date_range_vix = vix_hist[(vix_hist.index >= start_date) & (vix_hist.index <= end_date)]
+                    for hist_data in historical_data:
+                        target_date = pd.to_datetime(hist_data['date'])
+                        if target_date in date_range_vix.index:
+                            hist_data['vix_level'] = date_range_vix.loc[target_date]['Close']
                             hist_data['vix_interpretation'] = self.interpret_vix(hist_data['vix_level'])
+            except Exception as e:
+                self.logger.warning(f"Error getting VIX historical data: {e}")
             
-            # Add 10-Year Treasury historical data
-            tnx_hist = self.get_historical_data("^TNX", "10y")
-            if tnx_hist is not None and not tnx_hist.empty:
-                monthly_tnx = tnx_hist.resample('M').last()
-                for hist_data in historical_data:
-                    target_date = datetime.strptime(hist_data['date'], '%Y-%m-%d')
-                    # Find closest date if exact match not found
-                    if target_date in monthly_tnx.index:
-                        hist_data['ten_year_treasury'] = monthly_tnx.loc[target_date]['Close']
-                    else:
-                        # Find the closest available date
-                        available_dates = monthly_tnx.index
-                        closest_date = min(available_dates, key=lambda x: abs((x - target_date).days))
-                        if abs((closest_date - target_date).days) <= 7:  # Within a week
-                            hist_data['ten_year_treasury'] = monthly_tnx.loc[closest_date]['Close']
+            try:
+                tnx_hist = self.get_historical_data("^TNX", "10y")
+                if tnx_hist is not None and not tnx_hist.empty:
+                    # Convert timezone-aware index to timezone-naive for comparison
+                    tnx_hist.index = tnx_hist.index.tz_localize(None) if tnx_hist.index.tz else tnx_hist.index
+                    date_range_tnx = tnx_hist[(tnx_hist.index >= start_date) & (tnx_hist.index <= end_date)]
+                    for hist_data in historical_data:
+                        target_date = pd.to_datetime(hist_data['date'])
+                        if target_date in date_range_tnx.index:
+                            hist_data['ten_year_treasury'] = date_range_tnx.loc[target_date]['Close']
+            except Exception as e:
+                self.logger.warning(f"Error getting Treasury historical data: {e}")
             
-            # Convert historical data to DataFrame
-            hist_df = pd.DataFrame(historical_data)
-            
-            # Mark current data
-            current_df['is_historical'] = False
-            
-            # Combine historical and current data
-            combined_df = pd.concat([hist_df, current_df], ignore_index=True)
-            
-            # Sort by date (oldest first)
-            combined_df = combined_df.sort_values('date')
-            combined_df = combined_df.reset_index(drop=True)
-            
-            # Clean and format data
-            combined_df = self.clean_and_format_data(combined_df)
-            
-            # Save combined dataset
-            self.save_combined_dataset(combined_df)
-            
-            self.logger.info(f"Created combined dataset with {len(combined_df)} records ({len(hist_df)} historical + {len(current_df)} current)")
-            return combined_df
+            # Convert to DataFrame
+            new_historical_df = pd.DataFrame(historical_data)
+            self.logger.info(f"Added {len(new_historical_df)} new historical records")
+            return new_historical_df
             
         except Exception as e:
-            self.logger.error(f"Error creating combined dataset: {e}")
+            self.logger.error(f"Error adding incremental historical data: {e}")
             return pd.DataFrame()
 
     def save_combined_dataset(self, combined_df):
@@ -363,12 +461,23 @@ class BubbleIndicatorScraper:
                 data_row = [row.get(col, '') for col in proper_columns]
                 ws_data.append(data_row)
             
-            # Save combined file
+            # Save combined file to OneDrive
             wb.save(self.combined_file)
             self.logger.info(f"Combined dataset saved to: {self.combined_file}")
             
-            # Apply intelligent conditional formatting
+            # Apply intelligent conditional formatting to OneDrive file
             self.apply_combined_formatting(self.combined_file, combined_df)
+            
+            # Also save combined dataset to Downloads location
+            if self.downloads_file:
+                try:
+                    wb.save(self.downloads_file)
+                    self.logger.info(f"Combined dataset also saved to: {self.downloads_file}")
+                    
+                    # Apply intelligent conditional formatting to Downloads file
+                    self.apply_combined_formatting(self.downloads_file, combined_df)
+                except Exception as e:
+                    self.logger.error(f"Error saving combined dataset to Downloads: {e}")
             
         except Exception as e:
             self.logger.error(f"Error saving combined dataset: {e}")
@@ -1448,17 +1557,8 @@ class BubbleIndicatorScraper:
             # Apply formatting to daily backup
             self.apply_conditional_formatting(daily_backup_file)
             
-            # Save to Downloads location (if available)
-            if self.downloads_file:
-                try:
-                    wb.save(self.downloads_file)
-                    self.logger.info(f"Bubble indicators saved to: {self.downloads_file}")
-                    saved_locations.append(self.downloads_file)
-                    
-                    # Apply formatting to Downloads file
-                    self.apply_conditional_formatting(self.downloads_file)
-                except Exception as e:
-                    self.logger.error(f"Error saving to Downloads location: {e}")
+            # Note: Downloads file will be updated with combined historical data later
+            # Skip saving daily-only data to Downloads to avoid overwriting historical data
             
             # Print comprehensive summary
             print(f"\n=== Bubble Indicators Summary ===")
