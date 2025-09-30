@@ -649,6 +649,259 @@ class StockValuationScraper:
             self.logger.error(f"Error calculating DCF valuation: {e}")
             return None
 
+    def calculate_enhanced_dcf_valuation(self, stock_data):
+        """Calculate enhanced DCF with multi-scenario analysis and industry-specific adjustments"""
+        try:
+            if not stock_data:
+                return None
+            
+            current_price = stock_data.get('current_price', 0)
+            free_cashflow = stock_data.get('free_cashflow', 0)
+            shares_outstanding = stock_data.get('shares_outstanding', 0)
+            sector = stock_data.get('sector', 'Unknown')
+            beta = stock_data.get('beta', 1.0)
+            
+            if not free_cashflow or free_cashflow <= 0 or not shares_outstanding:
+                return {
+                    'enhanced_dcf_intrinsic_value': None,
+                    'enhanced_dcf_status': 'N/A',
+                    'enhanced_dcf_delta': 0,
+                    'enhanced_dcf_scenarios': None
+                }
+            
+            # Industry-specific WACC adjustments
+            base_discount_rate = self.discount_rate
+            industry_adjustments = {
+                'Technology': 0.5, 'Healthcare': 0.3, 'Financial Services': 0.4,
+                'Energy': 0.6, 'Utilities': -0.5, 'Consumer Staples': -0.3,
+                'Real Estate': 0.2
+            }
+            discount_rate = base_discount_rate + industry_adjustments.get(sector, 0)
+            
+            # Multi-scenario analysis
+            scenarios = {
+                'bear': {'probability': 0.25, 'growth_multiplier': 0.5, 'terminal_multiplier': 0.8},
+                'base': {'probability': 0.5, 'growth_multiplier': 1.0, 'terminal_multiplier': 1.0},
+                'bull': {'probability': 0.25, 'growth_multiplier': 1.5, 'terminal_multiplier': 1.2}
+            }
+            
+            # Calculate base growth rate with fade periods
+            historical_growth = stock_data.get('free_cashflow_growth_rate', 0)
+            if historical_growth and historical_growth > 0:
+                adjusted_growth = min(historical_growth * 0.7, 12)
+                if beta > 1.2:
+                    adjusted_growth *= 0.8
+                elif beta < 0.8:
+                    adjusted_growth *= 1.1
+                base_growth_rate = max(adjusted_growth, 2)
+            else:
+                base_growth_rate = 5
+            
+            scenario_values = {}
+            
+            for scenario_name, scenario_data in scenarios.items():
+                # Calculate growth rates with fade periods
+                growth_rates = []
+                scenario_growth = base_growth_rate * scenario_data['growth_multiplier']
+                
+                # Fade period: growth gradually declines to perpetual rate
+                fade_years = 5
+                for year in range(1, self.projection_years + 1):
+                    if year <= fade_years:
+                        fade_factor = (fade_years - year + 1) / fade_years
+                        year_growth = self.perpetual_growth_rate + (scenario_growth - self.perpetual_growth_rate) * fade_factor
+                    else:
+                        year_growth = self.perpetual_growth_rate
+                    growth_rates.append(year_growth)
+                
+                # Calculate projected FCF with fade periods
+                projected_fcf = []
+                current_fcf = free_cashflow
+                
+                for year in range(self.projection_years):
+                    current_fcf *= (1 + growth_rates[year] / 100)
+                    projected_fcf.append(current_fcf)
+                
+                # Calculate terminal value with scenario adjustment
+                last_year_fcf = projected_fcf[-1]
+                terminal_growth = self.perpetual_growth_rate * scenario_data['terminal_multiplier']
+                terminal_value = (last_year_fcf * (1 + terminal_growth / 100)) / (discount_rate / 100 - terminal_growth / 100)
+                
+                # Calculate present value of projected FCF
+                pv_fcf = []
+                for i, fcf in enumerate(projected_fcf):
+                    pv = fcf / ((1 + discount_rate / 100) ** (i + 1))
+                    pv_fcf.append(pv)
+                
+                # Calculate present value of terminal value
+                pv_terminal = terminal_value / ((1 + discount_rate / 100) ** self.projection_years)
+                
+                # Total enterprise value for this scenario
+                enterprise_value = sum(pv_fcf) + pv_terminal
+                intrinsic_value_per_share = enterprise_value / shares_outstanding
+                
+                scenario_values[scenario_name] = {
+                    'intrinsic_value': intrinsic_value_per_share,
+                    'probability': scenario_data['probability'],
+                    'growth_rate': scenario_growth,
+                    'terminal_value': terminal_value
+                }
+            
+            # Calculate probability-weighted intrinsic value
+            weighted_value = sum(scenario_values[s]['intrinsic_value'] * scenario_values[s]['probability'] 
+                                for s in scenario_values)
+            
+            # Determine valuation status
+            if weighted_value > current_price * 1.2:
+                valuation_status = "SIGNIFICANTLY UNDERVALUED"
+            elif weighted_value > current_price * 1.05:
+                valuation_status = "UNDERVALUED"
+            elif weighted_value > current_price * 0.95:
+                valuation_status = "FAIRLY VALUED"
+            elif weighted_value > current_price * 0.8:
+                valuation_status = "OVERVALUED"
+            else:
+                valuation_status = "SIGNIFICANTLY OVERVALUED"
+            
+            delta_percentage = ((weighted_value - current_price) / current_price) * 100
+            
+            return {
+                'enhanced_dcf_intrinsic_value': weighted_value,
+                'enhanced_dcf_status': valuation_status,
+                'enhanced_dcf_delta': delta_percentage,
+                'enhanced_dcf_scenarios': scenario_values,
+                'enhanced_dcf_discount_rate': discount_rate,
+                'enhanced_dcf_base_growth_rate': base_growth_rate
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating enhanced DCF valuation: {e}")
+            return {
+                'enhanced_dcf_intrinsic_value': None,
+                'enhanced_dcf_status': 'N/A',
+                'enhanced_dcf_delta': 0,
+                'enhanced_dcf_scenarios': None
+            }
+
+    def calculate_relative_valuation(self, stock_data):
+        """Calculate relative valuation using comparable company multiples"""
+        try:
+            if not stock_data:
+                return None
+            
+            current_price = stock_data.get('current_price', 0)
+            sector = stock_data.get('sector', 'Unknown')
+            
+            # Get financial metrics
+            enterprise_value = stock_data.get('enterprise_value', 0)
+            ebitda = stock_data.get('ebitda', 0)
+            net_income = stock_data.get('net_income', 0)
+            revenue = stock_data.get('revenue', 0)
+            book_value = stock_data.get('book_value', 0)
+            shares_outstanding = stock_data.get('shares_outstanding', 0)
+            
+            if not shares_outstanding or shares_outstanding <= 0:
+                return {
+                    'relative_valuation_status': 'N/A',
+                    'relative_valuation_delta': 0,
+                    'ev_ebitda_multiple': None,
+                    'pe_ratio': None,
+                    'ps_ratio': None,
+                    'pb_ratio': None
+                }
+            
+            # Calculate multiples
+            ev_ebitda_multiple = None
+            pe_ratio = None
+            ps_ratio = None
+            pb_ratio = None
+            
+            if ebitda and ebitda > 0:
+                ev_ebitda_multiple = enterprise_value / ebitda
+            
+            if net_income and net_income > 0:
+                pe_ratio = (current_price * shares_outstanding) / net_income
+            
+            if revenue and revenue > 0:
+                ps_ratio = (current_price * shares_outstanding) / revenue
+            
+            if book_value and book_value > 0:
+                pb_ratio = (current_price * shares_outstanding) / book_value
+            
+            # Sector-specific median multiples (simplified - in practice, you'd use real sector data)
+            sector_multiples = {
+                'Technology': {'ev_ebitda': 15, 'pe': 25, 'ps': 5, 'pb': 3},
+                'Healthcare': {'ev_ebitda': 12, 'pe': 20, 'ps': 4, 'pb': 2.5},
+                'Financial Services': {'ev_ebitda': 8, 'pe': 12, 'ps': 2, 'pb': 1.2},
+                'Energy': {'ev_ebitda': 6, 'pe': 15, 'ps': 1.5, 'pb': 1.5},
+                'Utilities': {'ev_ebitda': 10, 'pe': 18, 'ps': 2.5, 'pb': 1.8},
+                'Consumer Staples': {'ev_ebitda': 12, 'pe': 18, 'ps': 2, 'pb': 2},
+                'Real Estate': {'ev_ebitda': 15, 'pe': 20, 'ps': 8, 'pb': 1.5}
+            }
+            
+            sector_medians = sector_multiples.get(sector, {'ev_ebitda': 12, 'pe': 18, 'ps': 3, 'pb': 2})
+            
+            # Calculate valuation scores
+            valuation_scores = []
+            
+            if ev_ebitda_multiple and sector_medians['ev_ebitda']:
+                ev_ebitda_score = (sector_medians['ev_ebitda'] - ev_ebitda_multiple) / sector_medians['ev_ebitda']
+                valuation_scores.append(ev_ebitda_score)
+            
+            if pe_ratio and sector_medians['pe']:
+                pe_score = (sector_medians['pe'] - pe_ratio) / sector_medians['pe']
+                valuation_scores.append(pe_score)
+            
+            if ps_ratio and sector_medians['ps']:
+                ps_score = (sector_medians['ps'] - ps_ratio) / sector_medians['ps']
+                valuation_scores.append(ps_score)
+            
+            if pb_ratio and sector_medians['pb']:
+                pb_score = (sector_medians['pb'] - pb_ratio) / sector_medians['pb']
+                valuation_scores.append(pb_score)
+            
+            # Calculate average valuation score
+            if valuation_scores:
+                avg_score = sum(valuation_scores) / len(valuation_scores)
+                
+                if avg_score > 0.2:
+                    valuation_status = "SIGNIFICANTLY UNDERVALUED"
+                elif avg_score > 0.05:
+                    valuation_status = "UNDERVALUED"
+                elif avg_score > -0.05:
+                    valuation_status = "FAIRLY VALUED"
+                elif avg_score > -0.2:
+                    valuation_status = "OVERVALUED"
+                else:
+                    valuation_status = "SIGNIFICANTLY OVERVALUED"
+                
+                delta_percentage = avg_score * 100
+            else:
+                valuation_status = "N/A"
+                delta_percentage = 0
+            
+            return {
+                'relative_valuation_status': valuation_status,
+                'relative_valuation_delta': delta_percentage,
+                'ev_ebitda_multiple': ev_ebitda_multiple,
+                'pe_ratio': pe_ratio,
+                'ps_ratio': ps_ratio,
+                'pb_ratio': pb_ratio,
+                'sector_medians': sector_medians,
+                'valuation_scores': valuation_scores
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating relative valuation: {e}")
+            return {
+                'relative_valuation_status': 'N/A',
+                'relative_valuation_delta': 0,
+                'ev_ebitda_multiple': None,
+                'pe_ratio': None,
+                'ps_ratio': None,
+                'pb_ratio': None
+            }
+
     def calculate_munger_farm_valuation(self, stock_data):
         """Calculate Charlie Munger's farm valuation concept"""
         try:
@@ -728,6 +981,326 @@ class StockValuationScraper:
             self.logger.error(f"Error calculating Munger farm valuation: {e}")
             return None
 
+    def calculate_reverse_dcf(self, stock_data):
+        """Calculate reverse DCF to determine what growth rate is priced in by the market"""
+        try:
+            if not stock_data:
+                return None
+            
+            current_price = stock_data.get('current_price', 0)
+            free_cashflow = stock_data.get('free_cashflow', 0)
+            shares_outstanding = stock_data.get('shares_outstanding', 0)
+            sector = stock_data.get('sector', 'Unknown')
+            
+            if not free_cashflow or free_cashflow <= 0 or not shares_outstanding or not current_price:
+                return {
+                    'reverse_dcf_implied_growth': None,
+                    'reverse_dcf_assessment': 'N/A',
+                    'reverse_dcf_reasonable': None
+                }
+            
+            # Industry-specific WACC adjustments
+            base_discount_rate = self.discount_rate
+            industry_adjustments = {
+                'Technology': 0.5, 'Healthcare': 0.3, 'Financial Services': 0.4,
+                'Energy': 0.6, 'Utilities': -0.5, 'Consumer Staples': -0.3,
+                'Real Estate': 0.2
+            }
+            discount_rate = base_discount_rate + industry_adjustments.get(sector, 0)
+            
+            # Calculate implied growth rate using iterative approach
+            market_cap = current_price * shares_outstanding
+            target_enterprise_value = market_cap  # Simplified
+            
+            # Use binary search to find implied growth rate
+            low_growth = 0.0
+            high_growth = 0.5  # Cap at 50% growth
+            tolerance = 0.001
+            max_iterations = 100
+            
+            implied_growth = None
+            
+            for iteration in range(max_iterations):
+                test_growth = (low_growth + high_growth) / 2
+                
+                # Calculate DCF with test growth rate
+                projected_fcf = []
+                current_fcf = free_cashflow
+                
+                for year in range(1, self.projection_years + 1):
+                    current_fcf *= (1 + test_growth)
+                    projected_fcf.append(current_fcf)
+                
+                # Calculate terminal value
+                last_year_fcf = projected_fcf[-1]
+                terminal_value = (last_year_fcf * (1 + self.perpetual_growth_rate)) / (discount_rate - self.perpetual_growth_rate)
+                
+                # Calculate present value of projected FCF
+                pv_fcf = []
+                for i, fcf in enumerate(projected_fcf):
+                    pv = fcf / ((1 + discount_rate) ** (i + 1))
+                    pv_fcf.append(pv)
+                
+                # Calculate present value of terminal value
+                pv_terminal = terminal_value / ((1 + discount_rate) ** self.projection_years)
+                
+                # Total enterprise value
+                calculated_enterprise_value = sum(pv_fcf) + pv_terminal
+                
+                # Check if we're close enough
+                if abs(calculated_enterprise_value - target_enterprise_value) < tolerance:
+                    implied_growth = test_growth
+                    break
+                
+                # Adjust search range
+                if calculated_enterprise_value < target_enterprise_value:
+                    low_growth = test_growth
+                else:
+                    high_growth = test_growth
+            
+            if implied_growth is None:
+                implied_growth = (low_growth + high_growth) / 2
+            
+            # Convert to percentage
+            implied_growth_percentage = implied_growth * 100
+            
+            # Assess reasonableness
+            historical_growth = stock_data.get('free_cashflow_growth_rate', 0)
+            if historical_growth:
+                historical_growth_percentage = historical_growth
+            else:
+                historical_growth_percentage = stock_data.get('avg_price_growth_rate', 0)
+            
+            # Determine if implied growth is reasonable
+            if historical_growth_percentage > 0:
+                growth_ratio = implied_growth_percentage / historical_growth_percentage
+                
+                if growth_ratio > 2.0:
+                    assessment = "MARKET EXPECTS EXCESSIVE GROWTH"
+                    reasonable = False
+                elif growth_ratio > 1.5:
+                    assessment = "MARKET EXPECTS HIGH GROWTH"
+                    reasonable = False
+                elif growth_ratio > 0.8:
+                    assessment = "MARKET EXPECTS REASONABLE GROWTH"
+                    reasonable = True
+                elif growth_ratio > 0.5:
+                    assessment = "MARKET EXPECTS LOW GROWTH"
+                    reasonable = True
+                else:
+                    assessment = "MARKET EXPECTS DECLINING GROWTH"
+                    reasonable = True
+            else:
+                assessment = "NO HISTORICAL GROWTH DATA"
+                reasonable = None
+            
+            return {
+                'reverse_dcf_implied_growth': implied_growth_percentage,
+                'reverse_dcf_assessment': assessment,
+                'reverse_dcf_reasonable': reasonable,
+                'reverse_dcf_historical_growth': historical_growth_percentage,
+                'reverse_dcf_growth_ratio': growth_ratio if historical_growth_percentage > 0 else None,
+                'reverse_dcf_discount_rate': discount_rate
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating reverse DCF: {e}")
+            return {
+                'reverse_dcf_implied_growth': None,
+                'reverse_dcf_assessment': 'N/A',
+                'reverse_dcf_reasonable': None
+            }
+
+    def calculate_earnings_power_value(self, stock_data):
+        """Calculate Bruce Greenwald's Earnings Power Value"""
+        try:
+            if not stock_data:
+                return None
+            
+            current_price = stock_data.get('current_price', 0)
+            net_income = stock_data.get('net_income', 0)
+            shares_outstanding = stock_data.get('shares_outstanding', 0)
+            
+            if not net_income or net_income <= 0 or not shares_outstanding:
+                return {
+                    'epv_intrinsic_value': None,
+                    'epv_assessment': 'N/A',
+                    'epv_delta': 0
+                }
+            
+            # Normalize earnings (adjust for cyclicality)
+            normalized_earnings = net_income  # Simplified - use multi-year average in practice
+            
+            # Capitalize at appropriate rate (conservative)
+            epv_discount_rate = self.discount_rate + 0.02  # Add 2% for no-growth assumption
+            
+            # Calculate EPV
+            epv_enterprise_value = normalized_earnings / epv_discount_rate
+            epv_intrinsic_value = epv_enterprise_value / shares_outstanding
+            
+            # Determine valuation status
+            if epv_intrinsic_value > current_price * 1.2:
+                assessment = "SIGNIFICANTLY UNDERVALUED"
+            elif epv_intrinsic_value > current_price * 1.05:
+                assessment = "UNDERVALUED"
+            elif epv_intrinsic_value > current_price * 0.95:
+                assessment = "FAIRLY VALUED"
+            elif epv_intrinsic_value > current_price * 0.8:
+                assessment = "OVERVALUED"
+            else:
+                assessment = "SIGNIFICANTLY OVERVALUED"
+            
+            delta_percentage = ((epv_intrinsic_value - current_price) / current_price) * 100
+            
+            return {
+                'epv_intrinsic_value': epv_intrinsic_value,
+                'epv_assessment': assessment,
+                'epv_delta': delta_percentage,
+                'epv_normalized_earnings': normalized_earnings,
+                'epv_discount_rate': epv_discount_rate
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating Earnings Power Value: {e}")
+            return {
+                'epv_intrinsic_value': None,
+                'epv_assessment': 'N/A',
+                'epv_delta': 0
+            }
+
+    def calculate_residual_income_model(self, stock_data):
+        """Calculate Residual Income Model - particularly good for financial stocks"""
+        try:
+            if not stock_data:
+                return None
+            
+            current_price = stock_data.get('current_price', 0)
+            book_value = stock_data.get('book_value', 0)
+            net_income = stock_data.get('net_income', 0)
+            shares_outstanding = stock_data.get('shares_outstanding', 0)
+            sector = stock_data.get('sector', 'Unknown')
+            roe = stock_data.get('return_on_equity', 0)
+            
+            if not book_value or book_value <= 0 or not shares_outstanding:
+                return {
+                    'rim_intrinsic_value': None,
+                    'rim_assessment': 'N/A',
+                    'rim_delta': 0
+                }
+            
+            # Calculate book value per share
+            book_value_per_share = book_value / shares_outstanding
+            
+            # Determine cost of equity based on sector
+            sector_cost_of_equity = {
+                'Financial Services': 0.10,  # 10% - higher risk
+                'Technology': 0.12,          # 12% - high growth, high risk
+                'Healthcare': 0.09,         # 9% - moderate risk
+                'Energy': 0.11,             # 11% - cyclical risk
+                'Utilities': 0.07,          # 7% - lower risk
+                'Consumer Staples': 0.08,   # 8% - stable
+                'Real Estate': 0.09         # 9% - moderate risk
+            }
+            
+            cost_of_equity = sector_cost_of_equity.get(sector, 0.10)  # Default 10%
+            
+            # Calculate current ROE if not provided
+            if not roe and net_income and book_value:
+                roe = net_income / book_value
+            
+            # Project residual income for next 5 years
+            projection_years = 5
+            residual_income_projection = []
+            current_book_value = book_value_per_share
+            
+            # Use current ROE or sector average if not available
+            if not roe or roe <= 0:
+                sector_roe_averages = {
+                    'Financial Services': 0.12,
+                    'Technology': 0.15,
+                    'Healthcare': 0.10,
+                    'Energy': 0.08,
+                    'Utilities': 0.08,
+                    'Consumer Staples': 0.12,
+                    'Real Estate': 0.10
+                }
+                roe = sector_roe_averages.get(sector, 0.10)
+            
+            # Apply fade period - ROE gradually declines to cost of equity
+            fade_years = 3
+            terminal_roe = cost_of_equity
+            
+            for year in range(1, projection_years + 1):
+                # Calculate ROE for this year (with fade)
+                if year <= fade_years:
+                    fade_factor = (fade_years - year + 1) / fade_years
+                    year_roe = terminal_roe + (roe - terminal_roe) * fade_factor
+                else:
+                    year_roe = terminal_roe
+                
+                # Calculate expected earnings
+                expected_earnings = current_book_value * year_roe
+                
+                # Calculate residual income
+                residual_income = expected_earnings - (current_book_value * cost_of_equity)
+                
+                # Calculate present value of residual income
+                pv_residual_income = residual_income / ((1 + cost_of_equity) ** year)
+                
+                residual_income_projection.append({
+                    'year': year,
+                    'roe': year_roe,
+                    'expected_earnings': expected_earnings,
+                    'residual_income': residual_income,
+                    'pv_residual_income': pv_residual_income
+                })
+                
+                # Update book value for next year
+                current_book_value += expected_earnings
+            
+            # Calculate terminal value (assuming ROE = cost of equity)
+            terminal_residual_income = residual_income_projection[-1]['residual_income']
+            terminal_value = terminal_residual_income / cost_of_equity
+            pv_terminal_value = terminal_value / ((1 + cost_of_equity) ** projection_years)
+            
+            # Calculate intrinsic value
+            sum_pv_residual_income = sum(ri['pv_residual_income'] for ri in residual_income_projection)
+            rim_intrinsic_value = book_value_per_share + sum_pv_residual_income + pv_terminal_value
+            
+            # Determine valuation status
+            if rim_intrinsic_value > current_price * 1.2:
+                assessment = "SIGNIFICANTLY UNDERVALUED"
+            elif rim_intrinsic_value > current_price * 1.05:
+                assessment = "UNDERVALUED"
+            elif rim_intrinsic_value > current_price * 0.95:
+                assessment = "FAIRLY VALUED"
+            elif rim_intrinsic_value > current_price * 0.8:
+                assessment = "OVERVALUED"
+            else:
+                assessment = "SIGNIFICANTLY OVERVALUED"
+            
+            delta_percentage = ((rim_intrinsic_value - current_price) / current_price) * 100
+            
+            return {
+                'rim_intrinsic_value': rim_intrinsic_value,
+                'rim_assessment': assessment,
+                'rim_delta': delta_percentage,
+                'rim_book_value_per_share': book_value_per_share,
+                'rim_cost_of_equity': cost_of_equity,
+                'rim_current_roe': roe,
+                'rim_terminal_value': terminal_value,
+                'rim_residual_income_projection': residual_income_projection,
+                'rim_sum_pv_residual_income': sum_pv_residual_income
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating Residual Income Model: {e}")
+            return {
+                'rim_intrinsic_value': None,
+                'rim_assessment': 'N/A',
+                'rim_delta': 0
+            }
+
     def collect_valuation_metrics(self, ticker):
         """Collect all valuation metrics for a specific ticker"""
         self.logger.info(f"Collecting valuation metrics for {ticker}")
@@ -745,6 +1318,13 @@ class StockValuationScraper:
         lynch_valuation = self.calculate_peter_lynch_valuation(stock_data, historical_data)
         dcf_valuation = self.calculate_dcf_valuation(stock_data, historical_data)
         munger_valuation = self.calculate_munger_farm_valuation(stock_data)
+        
+        # Calculate new Tier 1 and Tier 2 valuation methods
+        enhanced_dcf_valuation = self.calculate_enhanced_dcf_valuation(stock_data)
+        relative_valuation = self.calculate_relative_valuation(stock_data)
+        reverse_dcf_valuation = self.calculate_reverse_dcf(stock_data)
+        epv_valuation = self.calculate_earnings_power_value(stock_data)
+        rim_valuation = self.calculate_residual_income_model(stock_data)
         
         # Combine all data
         valuation_data = {
@@ -803,6 +1383,58 @@ class StockValuationScraper:
                 'munger_10pct_intrinsic_value': munger_valuation.get('farm_valuations', {}).get('10%_return', {}).get('intrinsic_value', 0),
                 'munger_10pct_delta_percentage': munger_valuation.get('farm_valuations', {}).get('10%_return', {}).get('delta_percentage', 0),
                 'munger_10pct_assessment': munger_valuation.get('farm_valuations', {}).get('10%_return', {}).get('assessment', 'N/A')
+            })
+        
+        # Add Enhanced DCF valuation (Tier 1)
+        if enhanced_dcf_valuation:
+            valuation_data.update({
+                'enhanced_dcf_intrinsic_value': enhanced_dcf_valuation.get('enhanced_dcf_intrinsic_value', 0),
+                'enhanced_dcf_status': enhanced_dcf_valuation.get('enhanced_dcf_status', 'N/A'),
+                'enhanced_dcf_delta': enhanced_dcf_valuation.get('enhanced_dcf_delta', 0),
+                'enhanced_dcf_discount_rate': enhanced_dcf_valuation.get('enhanced_dcf_discount_rate', 0),
+                'enhanced_dcf_base_growth_rate': enhanced_dcf_valuation.get('enhanced_dcf_base_growth_rate', 0)
+            })
+        
+        # Add Relative Valuation (Tier 1)
+        if relative_valuation:
+            valuation_data.update({
+                'relative_valuation_status': relative_valuation.get('relative_valuation_status', 'N/A'),
+                'relative_valuation_delta': relative_valuation.get('relative_valuation_delta', 0),
+                'ev_ebitda_multiple': relative_valuation.get('ev_ebitda_multiple', 0),
+                'pe_ratio': relative_valuation.get('pe_ratio', 0),
+                'ps_ratio': relative_valuation.get('ps_ratio', 0),
+                'pb_ratio': relative_valuation.get('pb_ratio', 0)
+            })
+        
+        # Add Reverse DCF (Tier 2)
+        if reverse_dcf_valuation:
+            valuation_data.update({
+                'reverse_dcf_implied_growth': reverse_dcf_valuation.get('reverse_dcf_implied_growth', 0),
+                'reverse_dcf_assessment': reverse_dcf_valuation.get('reverse_dcf_assessment', 'N/A'),
+                'reverse_dcf_reasonable': reverse_dcf_valuation.get('reverse_dcf_reasonable', None),
+                'reverse_dcf_historical_growth': reverse_dcf_valuation.get('reverse_dcf_historical_growth', 0),
+                'reverse_dcf_growth_ratio': reverse_dcf_valuation.get('reverse_dcf_growth_ratio', 0)
+            })
+        
+        # Add Earnings Power Value (Tier 2)
+        if epv_valuation:
+            valuation_data.update({
+                'epv_intrinsic_value': epv_valuation.get('epv_intrinsic_value', 0),
+                'epv_assessment': epv_valuation.get('epv_assessment', 'N/A'),
+                'epv_delta': epv_valuation.get('epv_delta', 0),
+                'epv_normalized_earnings': epv_valuation.get('epv_normalized_earnings', 0),
+                'epv_discount_rate': epv_valuation.get('epv_discount_rate', 0)
+            })
+        
+        # Add Residual Income Model (Tier 2)
+        if rim_valuation:
+            valuation_data.update({
+                'rim_intrinsic_value': rim_valuation.get('rim_intrinsic_value', 0),
+                'rim_assessment': rim_valuation.get('rim_assessment', 'N/A'),
+                'rim_delta': rim_valuation.get('rim_delta', 0),
+                'rim_book_value_per_share': rim_valuation.get('rim_book_value_per_share', 0),
+                'rim_cost_of_equity': rim_valuation.get('rim_cost_of_equity', 0),
+                'rim_current_roe': rim_valuation.get('rim_current_roe', 0)
             })
         
         self.logger.info(f"Collected {len(valuation_data)} valuation metrics for {ticker}")
@@ -994,13 +1626,17 @@ class StockValuationScraper:
             
             # Headers for valuation methods
             ws_summary[f'A{row}'] = "Company (Ticker)"
-            ws_summary[f'B{row}'] = "Peter Lynch Valuation"
+            ws_summary[f'B{row}'] = "Peter Lynch"
             ws_summary[f'C{row}'] = "DCF Valuation"
-            ws_summary[f'D{row}'] = "Munger Farm Valuation"
-            ws_summary[f'E{row}'] = "Current Price"
+            ws_summary[f'D{row}'] = "Munger Farm"
+            ws_summary[f'E{row}'] = "Enhanced DCF"
+            ws_summary[f'F{row}'] = "Relative Valuation"
+            ws_summary[f'G{row}'] = "Reverse DCF"
+            ws_summary[f'H{row}'] = "EPV/RIM"
+            ws_summary[f'I{row}'] = "Current Price"
             
             # Format headers
-            for col in ['A', 'B', 'C', 'D', 'E']:
+            for col in ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']:
                 cell = ws_summary[f'{col}{row}']
                 cell.font = header_font
                 cell.fill = header_fill
