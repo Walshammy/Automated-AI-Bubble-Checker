@@ -78,47 +78,153 @@ class StockValuationScraper:
         # Historical progress tracking
         self.historical_progress_file = os.path.join(self.onedrive_dir, "valuation_historical_progress.json")
 
-        # Focus stocks for valuation analysis
+        # Focus stocks for valuation analysis - Complete NZX + International
         self.focus_stocks = {
-            'NTL.NZ': 'National Bank of New Zealand',
-            'USF.NZ': 'US Fund',
-            'BRK-B': 'Berkshire Hathaway Class B',
+            # NZX Mega/Large Cap (>$5B) - 13 companies
+            'WBC.NZ': 'Westpac Banking Corporation',
+            'ANZ.NZ': 'ANZ Group Holdings Limited',
+            'FPH.NZ': 'Fisher & Paykel Healthcare Corporation Limited',
+            'MEL.NZ': 'Meridian Energy Limited',
+            'AIA.NZ': 'Auckland International Airport Limited',
             'IFT.NZ': 'Infratil Limited',
-            'GXH.NZ': 'Genesis Energy',
-            'SMI.NZ': 'Summerset Group',
-            'EUF.NZ': 'European Fund',
+            'AFI.NZ': 'Australian Foundation Investment Company Limited',
+            'MCY.NZ': 'Mercury NZ Limited',
+            'EBO.NZ': 'EBOS Group Limited',
+            'FCG.NZ': 'Fonterra Co-operative Group Limited',
+            'CEN.NZ': 'Contact Energy Limited',
+            'MFT.NZ': 'Mainfreight Limited',
+            'ATM.NZ': 'The a2 Milk Company Limited',
+            
+            # NZX Mid Cap ($1B - $5B) - 16 companies
+            'POT.NZ': 'Port of Tauranga Limited',
+            'SPK.NZ': 'Spark New Zealand Limited',
+            'VNT.NZ': 'Ventia Services Group Limited',
+            'VCT.NZ': 'Vector Limited',
+            'CNU.NZ': 'Chorus Limited',
+            'FBU.NZ': 'Fletcher Building Limited',
+            'GMT.NZ': 'Goodman Property Trust',
+            'SUM.NZ': 'Summerset Group Holdings Limited',
+            'GNE.NZ': 'Genesis Energy Limited',
+            'RYM.NZ': 'Ryman Healthcare Limited',
+            'FRW.NZ': 'Freightways Group Limited',
+            'MNW.NZ': 'Manawa Energy Limited',
+            'PCT.NZ': 'Precinct Properties NZ Ltd',
+            'AIR.NZ': 'Air New Zealand Limited',
+            'KPG.NZ': 'Kiwi Property Group Limited',
+            'GTK.NZ': 'Gentrack Group Limited',
+            
+            # NZX Small Cap ($300M - $1B) - 29 companies
+            'VHP.NZ': 'Vital Healthcare Property Trust',
+            'PFI.NZ': 'Property For Industry Limited',
+            'BGP.NZ': 'Briscoe Group Limited',
+            'ARG.NZ': 'Argosy Property Limited',
+            'SKL.NZ': 'Skellerup Holdings Limited',
+            'CHI.NZ': 'Channel Infrastructure NZ Limited',
+            'VSL.NZ': 'Vulcan Steel Limited',
+            'VGL.NZ': 'Vista Group International Limited',
+            'HGH.NZ': 'Heartland Group Holdings Limited',
+            'SKC.NZ': 'SkyCity Entertainment Group Limited',
+            'SCL.NZ': 'Scales Corporation Limited',
+            'SPG.NZ': 'Stride Property Group',
+            'NPH.NZ': 'Napier Port Holdings Limited',
+            'TRA.NZ': 'Turners Automotive Group Limited',
+            'WIN.NZ': 'Winton Land Limited',
+            'OCA.NZ': 'Oceania Healthcare Limited',
+            'TWR.NZ': 'Tower Limited',
+            'SAN.NZ': 'Sanford Limited',
+            'HLG.NZ': 'Hallenstein Glasson Holdings Limited',
+            'NZX.NZ': 'NZX Limited',
+            'THL.NZ': 'Tourism Holdings Limited',
+            'IPL.NZ': 'Investore Property Limited',
+            'DGL.NZ': 'Delegat Group Limited',
+            'MCK.NZ': 'Millennium & Copthorne Hotels NZ Limited',
+            'SKT.NZ': 'SKY Network Television Limited',
+            'SKO.NZ': 'Serko Limited',
+            'RBD.NZ': 'Restaurant Brands New Zealand Limited',
+            'SML.NZ': 'Synlait Milk Limited',
+            
+            # NZX Micro Cap ($100M - $300M) - 22 companies
+            'WHS.NZ': 'The Warehouse Group Limited',
+            'AFT.NZ': 'AFT Pharmaceuticals Limited',
+            'SPY.NZ': 'Smartpay Holdings Limited',
+            'ERD.NZ': 'EROAD Limited',
+            'CDI.NZ': 'CDL Investments New Zealand Limited',
+            'TGG.NZ': 'T&G Global Limited',
+            'CMO.NZ': 'The Colonial Motor Company Limited',
+            'NZM.NZ': 'NZME Limited',
+            'MLN.NZ': 'Marlin Global Limited',
+            'KMD.NZ': 'KMD Brands Limited',
+            'SPN.NZ': 'South Port New Zealand Limited',
+            'MHJ.NZ': 'Michael Hill International Limited',
+            'SEK.NZ': 'Seeka Limited',
+            'SCT.NZ': 'Scott Technology Limited',
+            'PGW.NZ': 'PGG Wrightson Limited',
+            'RAK.NZ': 'Rakon Limited',
+            'IKE.NZ': 'ikeGPS Group Limited',
+            'LIC.NZ': 'Livestock Improvement Corporation Limited',
+            'NZL.NZ': 'New Zealand Rural Land Company Limited',
+            'GXH.NZ': 'Green Cross Health Limited',
+            'STU.NZ': 'Steel & Tube Holdings Limited',
+            'NZK.NZ': 'New Zealand King Salmon Investments Limited',
+            
+            # NZX Nano Cap (<$100M) - 35 companies
+            'RAD.NZ': 'Radius Residential Care Limited',
+            'NWF.NZ': 'NZ Windfarms Limited',
+            'PEB.NZ': 'Pacific Edge Limited',
+            'BPG.NZ': 'Black Pearl Group Limited',
+            'ARB.NZ': 'ArborGen Holdings Limited',
+            'APL.NZ': 'Asset Plus Limited',
+            'MFB.NZ': 'My Food Bag Group Limited',
+            'FWL.NZ': 'Foley Wines Limited',
+            'BRW.NZ': 'Bremworth Limited',
+            'AOF.NZ': 'AoFrio Limited',
+            'NTL.NZ': 'New Talisman Gold Mines Limited',
+            'TAH.NZ': 'Third Age Health Services Limited',
+            'CVT.NZ': 'Comvita Limited',
+            '2CC.NZ': '2 Cheap Cars Group Limited',
+            'PYS.NZ': 'PaySauce Limited',
+            'TWL.NZ': 'Trade Window Holdings Limited',
+            'GEN.NZ': 'General Capital Limited',
+            'BLT.NZ': 'BLIS Technologies Limited',
+            'MOV.NZ': 'MOVE Logistics Group Limited',
+            'ALF.NZ': 'Allied Farmers Limited',
+            'PHL.NZ': 'Promisia Healthcare Limited',
+            'WCO.NZ': 'WasteCo Group Limited',
+            'VTL.NZ': 'Vital Limited',
+            'CCC.NZ': 'Cooks Coffee Company Limited',
+            'TRU.NZ': 'TruScreen Group Limited',
+            'ENS.NZ': 'Enprise Group Limited',
+            'SVR.NZ': 'Savor Limited',
+            'BFG.NZ': 'Burger Fuel Group Limited',
+            'BAI.NZ': 'Being AI Limited',
+            'SDL.NZ': 'Solution Dynamics Limited',
+            'MPG.NZ': 'Metro Performance Glass Limited',
+            'AGL.NZ': 'Accordant Group Limited',
+            'CRP.NZ': 'Chatham Rock Phosphate Limited',
+            'RUA.NZ': 'Rua Bioscience Limited',
+            'ME.NZ': 'Me Today Limited',
+            'RTO.NZ': 'RTO Limited',
+            
+            # International Stocks
+            'BRK-B': 'Berkshire Hathaway Class B',
             'IWM': 'iShares Russell 2000 ETF',
             'MSFT': 'Microsoft Corporation',
-            'NZG.NZ': 'New Zealand Government',
             'META': 'Meta Platforms',
-            'APA.NZ': 'APA Group',
             'AAPL': 'Apple Inc.',
-            'RUA.NZ': 'Ryman Healthcare',
             'NVDA': 'NVIDIA Corporation',
             'SNOW': 'Snowflake Inc.',
-            'SPK.NZ': 'Spark New Zealand',
-            'AIA.NZ': 'Auckland International Airport',
-            'PEB.NZ': 'Port of Tauranga',
             'AMZN': 'Amazon.com Inc.',
-            'FNZ.NZ': 'Fonterra Co-operative Group',
-            'LIV.NZ': 'Livestock Improvement Corporation',
-            'OZY.NZ': 'Oceania Healthcare',
-            'BOT.NZ': 'Bank of New Zealand',
             'LMT': 'Lockheed Martin Corporation',
-            'TNZ.NZ': 'Trustpower Limited',
             'TSM': 'Taiwan Semiconductor Manufacturing',
-            'NGB.NZ': 'Ngai Tahu Holdings',
             'INTC': 'Intel Corporation',
             'GOOGL': 'Alphabet Inc.',
-            'TRA.NZ': 'Transpower New Zealand',
             'AMD': 'Advanced Micro Devices',
-            'KMD.NZ': 'Kathmandu Holdings',
             'RKLB': 'Rocket Lab USA',
             'AMAT': 'Applied Materials',
             'NVO': 'Novo Nordisk',
             'NOC': 'Northrop Grumman Corporation',
-            'SMI.AX': 'Santos Limited',
-            'BRK-A': 'Berkshire Hathaway Class A'
+            'BRK-A': 'Berkshire Hathaway Class A',
+            'SMI.AX': 'Santos Limited'
         }
 
         # Market indices for context
@@ -781,19 +887,45 @@ class StockValuationScraper:
             timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
             daily_backup_file = os.path.join(self.daily_backups_dir, f"stock_valuation_dataset_{timestamp}.xlsx")
             
-            # Create workbook
-            wb = Workbook()
-            wb.remove(wb.active)
+            # Try to load existing workbook first
+            try:
+                wb = load_workbook(self.master_file)
+                self.logger.info("Loaded existing workbook, adding new data")
+            except FileNotFoundError:
+                # Create new workbook if file doesn't exist
+                wb = Workbook()
+                wb.remove(wb.active)
+                self.logger.info("Created new workbook")
             
-            # Create summary sheet
+            # Create or update summary sheet
+            if 'My Portfolio' in wb.sheetnames:
+                wb.remove(wb['My Portfolio'])
             self.create_valuation_summary_sheet(df, wb)
             
-            # Create main dataset sheet
-            ws_data = wb.create_sheet('Valuation Data', 1)
+            # Create or update prospects sheet
+            if 'Prospects' in wb.sheetnames:
+                wb.remove(wb['Prospects'])
+            self.create_prospects_sheet(df, wb)
             
-            # Add data to worksheet
-            for r in dataframe_to_rows(df, index=False, header=True):
-                ws_data.append(r)
+            # Create or update detailed data sheet
+            if 'Valuation Data' in wb.sheetnames:
+                ws_data = wb['Valuation Data']
+                # Find the next empty row
+                next_row = ws_data.max_row + 1
+            else:
+                ws_data = wb.create_sheet('Valuation Data', 2)
+                next_row = 1
+                # Add headers if new sheet
+                headers = list(df.columns)
+                for col, header in enumerate(headers, 1):
+                    ws_data.cell(row=1, column=col, value=header)
+                next_row = 2
+            
+            # Add new data to worksheet (skip header if not new sheet)
+            for _, row in df.iterrows():
+                for col, value in enumerate(row, 1):
+                    ws_data.cell(row=next_row, column=col, value=value)
+                next_row += 1
             
             # Save files
             wb.save(self.master_file)
@@ -811,7 +943,7 @@ class StockValuationScraper:
     def create_valuation_summary_sheet(self, df, wb):
         """Create comprehensive valuation summary sheet with 3 valuation methods in columns B, C, D"""
         try:
-            ws_summary = wb.create_sheet('Valuation Summary', 0)
+            ws_summary = wb.create_sheet('My Portfolio', 0)
             
             # Define styles
             header_fill = PatternFill(start_color="2F4F4F", end_color="2F4F4F", fill_type="solid")
@@ -863,8 +995,34 @@ class StockValuationScraper:
                 cell.border = border
             row += 1
             
-            # Add data for each stock
+            # Separate stocks by completeness - most complete at top
+            stocks_complete = []      # All 3 valuation methods
+            stocks_partial = []       # 1-2 valuation methods
+            stocks_without_data = []  # No valuation methods
+            
             for _, stock_row in df.iterrows():
+                lynch_status = stock_row.get('lynch_valuation_status', 'N/A')
+                dcf_status = stock_row.get('dcf_valuation_status', 'N/A')
+                munger_assessment = stock_row.get('munger_7pct_assessment', 'N/A')
+                
+                # Count how many valuation methods are available
+                available_methods = 0
+                if lynch_status != 'N/A':
+                    available_methods += 1
+                if dcf_status != 'N/A':
+                    available_methods += 1
+                if munger_assessment != 'N/A':
+                    available_methods += 1
+                
+                if available_methods == 3:
+                    stocks_complete.append(stock_row)
+                elif available_methods > 0:
+                    stocks_partial.append(stock_row)
+                else:
+                    stocks_without_data.append(stock_row)
+            
+            # Add stocks with complete data first (all 3 valuation methods)
+            for stock_row in stocks_complete:
                 ticker = stock_row['ticker']
                 company_name = stock_row['company_name']
                 current_price = stock_row['current_price']
@@ -905,7 +1063,7 @@ class StockValuationScraper:
                         ws_summary[f'B{row}'].fill = strong_sell_fill
                 else:
                     ws_summary[f'B{row}'] = "Insufficient Data"
-                    ws_summary[f'B{row}'].font = data_font
+                    ws_summary[f'B{row}'].font = Font(size=11, color="808080")  # Grey text
                     ws_summary[f'B{row}'].border = border
                     ws_summary[f'B{row}'].alignment = Alignment(horizontal='center', vertical='center')
                     ws_summary[f'B{row}'].fill = no_data_fill
@@ -934,7 +1092,7 @@ class StockValuationScraper:
                         ws_summary[f'C{row}'].fill = strong_sell_fill
                 else:
                     ws_summary[f'C{row}'] = "Insufficient Data"
-                    ws_summary[f'C{row}'].font = data_font
+                    ws_summary[f'C{row}'].font = Font(size=11, color="808080")  # Grey text
                     ws_summary[f'C{row}'].border = border
                     ws_summary[f'C{row}'].alignment = Alignment(horizontal='center', vertical='center')
                     ws_summary[f'C{row}'].fill = no_data_fill
@@ -963,12 +1121,156 @@ class StockValuationScraper:
                         ws_summary[f'D{row}'].fill = strong_sell_fill
                 else:
                     ws_summary[f'D{row}'] = "Insufficient Data"
-                    ws_summary[f'D{row}'].font = data_font
+                    ws_summary[f'D{row}'].font = Font(size=11, color="808080")  # Grey text
                     ws_summary[f'D{row}'].border = border
                     ws_summary[f'D{row}'].alignment = Alignment(horizontal='center', vertical='center')
                     ws_summary[f'D{row}'].fill = no_data_fill
                 
                 row += 1
+            
+            # Add stocks with partial data (1-2 valuation methods)
+            for stock_row in stocks_partial:
+                ticker = stock_row['ticker']
+                company_name = stock_row['company_name']
+                current_price = stock_row['current_price']
+                
+                # Company name and ticker
+                ws_summary[f'A{row}'] = f"{company_name} ({ticker})"
+                ws_summary[f'A{row}'].font = data_font
+                ws_summary[f'A{row}'].border = border
+                ws_summary[f'A{row}'].alignment = Alignment(horizontal='left', vertical='center')
+                
+                # Current price
+                ws_summary[f'E{row}'] = f"${current_price:,.2f}" if current_price else "N/A"
+                ws_summary[f'E{row}'].font = data_font
+                ws_summary[f'E{row}'].border = border
+                ws_summary[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                
+                # Peter Lynch Valuation (Column B)
+                lynch_status = stock_row.get('lynch_valuation_status', 'N/A')
+                lynch_delta = stock_row.get('lynch_delta_percentage', 0)
+                
+                if lynch_status != 'N/A':
+                    lynch_text = f"{lynch_status}\nDelta: {lynch_delta:+.1f}%"
+                    ws_summary[f'B{row}'] = lynch_text
+                    ws_summary[f'B{row}'].font = data_font
+                    ws_summary[f'B{row}'].border = border
+                    ws_summary[f'B{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'STRONG BUY' in lynch_status.upper() or lynch_delta > 20:
+                        ws_summary[f'B{row}'].fill = strong_buy_fill
+                    elif 'BUY' in lynch_status.upper() or lynch_delta > 5:
+                        ws_summary[f'B{row}'].fill = buy_fill
+                    elif 'HOLD' in lynch_status.upper() or abs(lynch_delta) <= 5:
+                        ws_summary[f'B{row}'].fill = hold_fill
+                    elif 'SELL' in lynch_status.upper() or lynch_delta < -5:
+                        ws_summary[f'B{row}'].fill = sell_fill
+                    elif 'STRONG SELL' in lynch_status.upper() or lynch_delta < -20:
+                        ws_summary[f'B{row}'].fill = strong_sell_fill
+                else:
+                    ws_summary[f'B{row}'] = "Insufficient Data"
+                    ws_summary[f'B{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_summary[f'B{row}'].border = border
+                    ws_summary[f'B{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_summary[f'B{row}'].fill = no_data_fill
+                
+                # DCF Valuation (Column C)
+                dcf_status = stock_row.get('dcf_valuation_status', 'N/A')
+                dcf_delta = stock_row.get('dcf_delta_percentage', 0)
+                
+                if dcf_status != 'N/A':
+                    dcf_text = f"{dcf_status}\nDelta: {dcf_delta:+.1f}%"
+                    ws_summary[f'C{row}'] = dcf_text
+                    ws_summary[f'C{row}'].font = data_font
+                    ws_summary[f'C{row}'].border = border
+                    ws_summary[f'C{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in dcf_status.upper() or dcf_delta > 20:
+                        ws_summary[f'C{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in dcf_status.upper() or dcf_delta > 5:
+                        ws_summary[f'C{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in dcf_status.upper() or abs(dcf_delta) <= 5:
+                        ws_summary[f'C{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in dcf_status.upper() or dcf_delta < -5:
+                        ws_summary[f'C{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in dcf_status.upper() or dcf_delta < -20:
+                        ws_summary[f'C{row}'].fill = strong_sell_fill
+                else:
+                    ws_summary[f'C{row}'] = "Insufficient Data"
+                    ws_summary[f'C{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_summary[f'C{row}'].border = border
+                    ws_summary[f'C{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_summary[f'C{row}'].fill = no_data_fill
+                
+                # Munger Farm Valuation (Column D)
+                munger_assessment = stock_row.get('munger_7pct_assessment', 'N/A')
+                munger_delta = stock_row.get('munger_7pct_delta_percentage', 0)
+                
+                if munger_assessment != 'N/A':
+                    munger_text = f"{munger_assessment}\nDelta: {munger_delta:+.1f}%"
+                    ws_summary[f'D{row}'] = munger_text
+                    ws_summary[f'D{row}'].font = data_font
+                    ws_summary[f'D{row}'].border = border
+                    ws_summary[f'D{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'STRONG BUY' in munger_assessment.upper() or munger_delta > 20:
+                        ws_summary[f'D{row}'].fill = strong_buy_fill
+                    elif 'BUY' in munger_assessment.upper() or munger_delta > 5:
+                        ws_summary[f'D{row}'].fill = buy_fill
+                    elif 'HOLD' in munger_assessment.upper() or abs(munger_delta) <= 5:
+                        ws_summary[f'D{row}'].fill = hold_fill
+                    elif 'SELL' in munger_assessment.upper() or munger_delta < -5:
+                        ws_summary[f'D{row}'].fill = sell_fill
+                    elif 'STRONG SELL' in munger_assessment.upper() or munger_delta < -20:
+                        ws_summary[f'D{row}'].fill = strong_sell_fill
+                else:
+                    ws_summary[f'D{row}'] = "Insufficient Data"
+                    ws_summary[f'D{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_summary[f'D{row}'].border = border
+                    ws_summary[f'D{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_summary[f'D{row}'].fill = no_data_fill
+                
+                row += 1
+            
+            # Add stocks with insufficient data at the bottom
+            if stocks_without_data:
+                row += 2
+                ws_summary[f'A{row}'] = "STOCKS WITH INSUFFICIENT DATA"
+                ws_summary[f'A{row}'].font = Font(bold=True, size=12, color="808080")
+                ws_summary[f'A{row}'].fill = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")
+                ws_summary[f'A{row}'].border = border
+                ws_summary[f'A{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                row += 1
+                
+                for stock_row in stocks_without_data:
+                    ticker = stock_row['ticker']
+                    company_name = stock_row['company_name']
+                    current_price = stock_row['current_price']
+                    
+                    # Company name and ticker
+                    ws_summary[f'A{row}'] = f"{company_name} ({ticker})"
+                    ws_summary[f'A{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_summary[f'A{row}'].border = border
+                    ws_summary[f'A{row}'].alignment = Alignment(horizontal='left', vertical='center')
+                    
+                    # Current price
+                    ws_summary[f'E{row}'] = f"${current_price:,.2f}" if current_price else "N/A"
+                    ws_summary[f'E{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_summary[f'E{row}'].border = border
+                    ws_summary[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # All valuation columns show "Insufficient Data"
+                    for col in ['B', 'C', 'D']:
+                        ws_summary[f'{col}{row}'] = "Insufficient Data"
+                        ws_summary[f'{col}{row}'].font = Font(size=11, color="808080")  # Grey text
+                        ws_summary[f'{col}{row}'].border = border
+                        ws_summary[f'{col}{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                        ws_summary[f'{col}{row}'].fill = no_data_fill
+                    
+                    row += 1
             
             # Add legend
             row += 1
@@ -1005,6 +1307,400 @@ class StockValuationScraper:
             
         except Exception as e:
             self.logger.error(f"Error creating valuation summary sheet: {e}")
+
+    def create_prospects_sheet(self, df, wb):
+        """Create prospects sheet ranked by undervaluation"""
+        try:
+            ws_prospects = wb.create_sheet('Prospects', 1)
+            
+            # Define styles
+            header_fill = PatternFill(start_color="2F4F4F", end_color="2F4F4F", fill_type="solid")
+            header_font = Font(bold=True, color="FFFFFF", size=14)
+            subheader_font = Font(bold=True, size=12)
+            data_font = Font(size=11)
+            border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                          top=Side(style='thin'), bottom=Side(style='thin'))
+            
+            # Conditional formatting fills
+            strong_buy_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+            buy_fill = PatternFill(start_color="98FB98", end_color="98FB98", fill_type="solid")
+            hold_fill = PatternFill(start_color="FFFFE0", end_color="FFFFE0", fill_type="solid")
+            sell_fill = PatternFill(start_color="FFB6C1", end_color="FFB6C1", fill_type="solid")
+            strong_sell_fill = PatternFill(start_color="FFA0A0", end_color="FFA0A0", fill_type="solid")
+            no_data_fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")
+            
+            # Title
+            ws_prospects['A1'] = "NZX PROSPECTS - RANKED BY UNDERVALUATION"
+            ws_prospects['A1'].font = header_font
+            ws_prospects['A1'].fill = header_fill
+            ws_prospects['A1'].border = border
+            ws_prospects['A1'].alignment = Alignment(horizontal='center', vertical='center')
+            ws_prospects.merge_cells('A1:E1')
+            
+            # Headers
+            headers = ['Company (Ticker)', 'Peter Lynch', 'DCF Valuation', 'Munger Farm', 'Current Price']
+            row = 3
+            for col, header in enumerate(headers, 1):
+                cell = ws_prospects.cell(row=row, column=col)
+                cell.value = header
+                cell.font = subheader_font
+                cell.fill = header_fill
+                cell.border = border
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+            row += 1
+            
+            # Calculate undervaluation scores for ranking
+            def calculate_undervaluation_score(stock_row):
+                """Calculate composite undervaluation score"""
+                score = 0
+                count = 0
+                
+                # Peter Lynch score
+                lynch_delta = stock_row.get('lynch_delta_percentage', 0)
+                if lynch_delta != 0:
+                    score += lynch_delta
+                    count += 1
+                
+                # DCF score
+                dcf_delta = stock_row.get('dcf_delta_percentage', 0)
+                if dcf_delta != 0:
+                    score += dcf_delta
+                    count += 1
+                
+                # Munger score
+                munger_delta = stock_row.get('munger_7pct_delta_percentage', 0)
+                if munger_delta != 0:
+                    score += munger_delta
+                    count += 1
+                
+                return score / count if count > 0 else -999  # -999 for insufficient data
+            
+            # Separate stocks by completeness and rank by undervaluation
+            stocks_complete = []
+            stocks_partial = []
+            stocks_without_data = []
+            
+            for _, stock_row in df.iterrows():
+                lynch_status = stock_row.get('lynch_valuation_status', 'N/A')
+                dcf_status = stock_row.get('dcf_valuation_status', 'N/A')
+                munger_assessment = stock_row.get('munger_7pct_assessment', 'N/A')
+                
+                # Count how many valuation methods are available
+                available_methods = 0
+                if lynch_status != 'N/A':
+                    available_methods += 1
+                if dcf_status != 'N/A':
+                    available_methods += 1
+                if munger_assessment != 'N/A':
+                    available_methods += 1
+                
+                # Calculate undervaluation score
+                undervaluation_score = calculate_undervaluation_score(stock_row)
+                stock_row['undervaluation_score'] = undervaluation_score
+                
+                if available_methods == 3:
+                    stocks_complete.append(stock_row)
+                elif available_methods > 0:
+                    stocks_partial.append(stock_row)
+                else:
+                    stocks_without_data.append(stock_row)
+            
+            # Sort by undervaluation score (highest first)
+            stocks_complete.sort(key=lambda x: x['undervaluation_score'], reverse=True)
+            stocks_partial.sort(key=lambda x: x['undervaluation_score'], reverse=True)
+            
+            # Add stocks with complete data first (ranked by undervaluation)
+            for stock_row in stocks_complete:
+                ticker = stock_row['ticker']
+                company_name = stock_row['company_name']
+                current_price = stock_row['current_price']
+                
+                # Company name and ticker
+                ws_prospects[f'A{row}'] = f"{company_name} ({ticker})"
+                ws_prospects[f'A{row}'].font = data_font
+                ws_prospects[f'A{row}'].border = border
+                ws_prospects[f'A{row}'].alignment = Alignment(horizontal='left', vertical='center')
+                
+                # Current price
+                ws_prospects[f'E{row}'] = f"${current_price:,.2f}" if current_price else "N/A"
+                ws_prospects[f'E{row}'].font = data_font
+                ws_prospects[f'E{row}'].border = border
+                ws_prospects[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                
+                # Peter Lynch Valuation (Column B)
+                lynch_status = stock_row.get('lynch_valuation_status', 'N/A')
+                lynch_delta = stock_row.get('lynch_delta_percentage', 0)
+                
+                if lynch_status != 'N/A':
+                    lynch_text = f"{lynch_status}\nDelta: {lynch_delta:+.1f}%"
+                    ws_prospects[f'B{row}'] = lynch_text
+                    ws_prospects[f'B{row}'].font = data_font
+                    ws_prospects[f'B{row}'].border = border
+                    ws_prospects[f'B{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'STRONG BUY' in lynch_status.upper() or lynch_delta > 20:
+                        ws_prospects[f'B{row}'].fill = strong_buy_fill
+                    elif 'BUY' in lynch_status.upper() or lynch_delta > 5:
+                        ws_prospects[f'B{row}'].fill = buy_fill
+                    elif 'HOLD' in lynch_status.upper() or abs(lynch_delta) <= 5:
+                        ws_prospects[f'B{row}'].fill = hold_fill
+                    elif 'SELL' in lynch_status.upper() or lynch_delta < -5:
+                        ws_prospects[f'B{row}'].fill = sell_fill
+                    elif 'STRONG SELL' in lynch_status.upper() or lynch_delta < -20:
+                        ws_prospects[f'B{row}'].fill = strong_sell_fill
+                else:
+                    ws_prospects[f'B{row}'] = "Insufficient Data"
+                    ws_prospects[f'B{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'B{row}'].border = border
+                    ws_prospects[f'B{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'B{row}'].fill = no_data_fill
+                
+                # DCF Valuation (Column C)
+                dcf_status = stock_row.get('dcf_valuation_status', 'N/A')
+                dcf_delta = stock_row.get('dcf_delta_percentage', 0)
+                
+                if dcf_status != 'N/A':
+                    dcf_text = f"{dcf_status}\nDelta: {dcf_delta:+.1f}%"
+                    ws_prospects[f'C{row}'] = dcf_text
+                    ws_prospects[f'C{row}'].font = data_font
+                    ws_prospects[f'C{row}'].border = border
+                    ws_prospects[f'C{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in dcf_status.upper() or dcf_delta > 20:
+                        ws_prospects[f'C{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in dcf_status.upper() or dcf_delta > 5:
+                        ws_prospects[f'C{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in dcf_status.upper() or abs(dcf_delta) <= 5:
+                        ws_prospects[f'C{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in dcf_status.upper() or dcf_delta < -5:
+                        ws_prospects[f'C{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in dcf_status.upper() or dcf_delta < -20:
+                        ws_prospects[f'C{row}'].fill = strong_sell_fill
+                else:
+                    ws_prospects[f'C{row}'] = "Insufficient Data"
+                    ws_prospects[f'C{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'C{row}'].border = border
+                    ws_prospects[f'C{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'C{row}'].fill = no_data_fill
+                
+                # Munger Farm Valuation (Column D)
+                munger_assessment = stock_row.get('munger_7pct_assessment', 'N/A')
+                munger_delta = stock_row.get('munger_7pct_delta_percentage', 0)
+                
+                if munger_assessment != 'N/A':
+                    munger_text = f"{munger_assessment}\nDelta: {munger_delta:+.1f}%"
+                    ws_prospects[f'D{row}'] = munger_text
+                    ws_prospects[f'D{row}'].font = data_font
+                    ws_prospects[f'D{row}'].border = border
+                    ws_prospects[f'D{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'STRONG BUY' in munger_assessment.upper() or munger_delta > 20:
+                        ws_prospects[f'D{row}'].fill = strong_buy_fill
+                    elif 'BUY' in munger_assessment.upper() or munger_delta > 5:
+                        ws_prospects[f'D{row}'].fill = buy_fill
+                    elif 'HOLD' in munger_assessment.upper() or abs(munger_delta) <= 5:
+                        ws_prospects[f'D{row}'].fill = hold_fill
+                    elif 'SELL' in munger_assessment.upper() or munger_delta < -5:
+                        ws_prospects[f'D{row}'].fill = sell_fill
+                    elif 'STRONG SELL' in munger_assessment.upper() or munger_delta < -20:
+                        ws_prospects[f'D{row}'].fill = strong_sell_fill
+                else:
+                    ws_prospects[f'D{row}'] = "Insufficient Data"
+                    ws_prospects[f'D{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'D{row}'].border = border
+                    ws_prospects[f'D{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'D{row}'].fill = no_data_fill
+                
+                row += 1
+            
+            # Add stocks with partial data (ranked by undervaluation)
+            for stock_row in stocks_partial:
+                ticker = stock_row['ticker']
+                company_name = stock_row['company_name']
+                current_price = stock_row['current_price']
+                
+                # Company name and ticker
+                ws_prospects[f'A{row}'] = f"{company_name} ({ticker})"
+                ws_prospects[f'A{row}'].font = data_font
+                ws_prospects[f'A{row}'].border = border
+                ws_prospects[f'A{row}'].alignment = Alignment(horizontal='left', vertical='center')
+                
+                # Current price
+                ws_prospects[f'E{row}'] = f"${current_price:,.2f}" if current_price else "N/A"
+                ws_prospects[f'E{row}'].font = data_font
+                ws_prospects[f'E{row}'].border = border
+                ws_prospects[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                
+                # Peter Lynch Valuation (Column B)
+                lynch_status = stock_row.get('lynch_valuation_status', 'N/A')
+                lynch_delta = stock_row.get('lynch_delta_percentage', 0)
+                
+                if lynch_status != 'N/A':
+                    lynch_text = f"{lynch_status}\nDelta: {lynch_delta:+.1f}%"
+                    ws_prospects[f'B{row}'] = lynch_text
+                    ws_prospects[f'B{row}'].font = data_font
+                    ws_prospects[f'B{row}'].border = border
+                    ws_prospects[f'B{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'STRONG BUY' in lynch_status.upper() or lynch_delta > 20:
+                        ws_prospects[f'B{row}'].fill = strong_buy_fill
+                    elif 'BUY' in lynch_status.upper() or lynch_delta > 5:
+                        ws_prospects[f'B{row}'].fill = buy_fill
+                    elif 'HOLD' in lynch_status.upper() or abs(lynch_delta) <= 5:
+                        ws_prospects[f'B{row}'].fill = hold_fill
+                    elif 'SELL' in lynch_status.upper() or lynch_delta < -5:
+                        ws_prospects[f'B{row}'].fill = sell_fill
+                    elif 'STRONG SELL' in lynch_status.upper() or lynch_delta < -20:
+                        ws_prospects[f'B{row}'].fill = strong_sell_fill
+                else:
+                    ws_prospects[f'B{row}'] = "Insufficient Data"
+                    ws_prospects[f'B{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'B{row}'].border = border
+                    ws_prospects[f'B{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'B{row}'].fill = no_data_fill
+                
+                # DCF Valuation (Column C)
+                dcf_status = stock_row.get('dcf_valuation_status', 'N/A')
+                dcf_delta = stock_row.get('dcf_delta_percentage', 0)
+                
+                if dcf_status != 'N/A':
+                    dcf_text = f"{dcf_status}\nDelta: {dcf_delta:+.1f}%"
+                    ws_prospects[f'C{row}'] = dcf_text
+                    ws_prospects[f'C{row}'].font = data_font
+                    ws_prospects[f'C{row}'].border = border
+                    ws_prospects[f'C{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in dcf_status.upper() or dcf_delta > 20:
+                        ws_prospects[f'C{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in dcf_status.upper() or dcf_delta > 5:
+                        ws_prospects[f'C{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in dcf_status.upper() or abs(dcf_delta) <= 5:
+                        ws_prospects[f'C{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in dcf_status.upper() or dcf_delta < -5:
+                        ws_prospects[f'C{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in dcf_status.upper() or dcf_delta < -20:
+                        ws_prospects[f'C{row}'].fill = strong_sell_fill
+                else:
+                    ws_prospects[f'C{row}'] = "Insufficient Data"
+                    ws_prospects[f'C{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'C{row}'].border = border
+                    ws_prospects[f'C{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'C{row}'].fill = no_data_fill
+                
+                # Munger Farm Valuation (Column D)
+                munger_assessment = stock_row.get('munger_7pct_assessment', 'N/A')
+                munger_delta = stock_row.get('munger_7pct_delta_percentage', 0)
+                
+                if munger_assessment != 'N/A':
+                    munger_text = f"{munger_assessment}\nDelta: {munger_delta:+.1f}%"
+                    ws_prospects[f'D{row}'] = munger_text
+                    ws_prospects[f'D{row}'].font = data_font
+                    ws_prospects[f'D{row}'].border = border
+                    ws_prospects[f'D{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'STRONG BUY' in munger_assessment.upper() or munger_delta > 20:
+                        ws_prospects[f'D{row}'].fill = strong_buy_fill
+                    elif 'BUY' in munger_assessment.upper() or munger_delta > 5:
+                        ws_prospects[f'D{row}'].fill = buy_fill
+                    elif 'HOLD' in munger_assessment.upper() or abs(munger_delta) <= 5:
+                        ws_prospects[f'D{row}'].fill = hold_fill
+                    elif 'SELL' in munger_assessment.upper() or munger_delta < -5:
+                        ws_prospects[f'D{row}'].fill = sell_fill
+                    elif 'STRONG SELL' in munger_assessment.upper() or munger_delta < -20:
+                        ws_prospects[f'D{row}'].fill = strong_sell_fill
+                else:
+                    ws_prospects[f'D{row}'] = "Insufficient Data"
+                    ws_prospects[f'D{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'D{row}'].border = border
+                    ws_prospects[f'D{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'D{row}'].fill = no_data_fill
+                
+                row += 1
+            
+            # Add stocks with insufficient data at the bottom
+            if stocks_without_data:
+                row += 2
+                ws_prospects[f'A{row}'] = "STOCKS WITH INSUFFICIENT DATA"
+                ws_prospects[f'A{row}'].font = Font(bold=True, size=12, color="808080")
+                ws_prospects[f'A{row}'].fill = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")
+                ws_prospects[f'A{row}'].border = border
+                ws_prospects[f'A{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                row += 1
+                
+                for stock_row in stocks_without_data:
+                    ticker = stock_row['ticker']
+                    company_name = stock_row['company_name']
+                    current_price = stock_row['current_price']
+                    
+                    # Company name and ticker
+                    ws_prospects[f'A{row}'] = f"{company_name} ({ticker})"
+                    ws_prospects[f'A{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'A{row}'].border = border
+                    ws_prospects[f'A{row}'].alignment = Alignment(horizontal='left', vertical='center')
+                    
+                    # Current price
+                    ws_prospects[f'E{row}'] = f"${current_price:,.2f}" if current_price else "N/A"
+                    ws_prospects[f'E{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'E{row}'].border = border
+                    ws_prospects[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # All valuation columns show "Insufficient Data"
+                    for col in ['B', 'C', 'D']:
+                        ws_prospects[f'{col}{row}'] = "Insufficient Data"
+                        ws_prospects[f'{col}{row}'].font = Font(size=11, color="808080")  # Grey text
+                        ws_prospects[f'{col}{row}'].border = border
+                        ws_prospects[f'{col}{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                        ws_prospects[f'{col}{row}'].fill = no_data_fill
+                    
+                    row += 1
+            
+            # Add legend
+            row += 1
+            ws_prospects[f'A{row}'] = "Legend:"
+            ws_prospects[f'A{row}'].font = Font(bold=True, size=12)
+            ws_prospects[f'A{row}'].border = border
+            row += 1
+            
+            legend_items = [
+                ("Strong Buy", strong_buy_fill),
+                ("Buy", buy_fill),
+                ("Hold", hold_fill),
+                ("Sell", sell_fill),
+                ("Strong Sell", strong_sell_fill),
+                ("Insufficient Data", no_data_fill)
+            ]
+            
+            for i, (label, fill) in enumerate(legend_items):
+                col = i + 1
+                ws_prospects.cell(row=row, column=col, value=label)
+                ws_prospects.cell(row=row, column=col).font = Font(size=10)
+                ws_prospects.cell(row=row, column=col).fill = fill
+                ws_prospects.cell(row=row, column=col).border = border
+                ws_prospects.cell(row=row, column=col).alignment = Alignment(horizontal='center', vertical='center')
+            
+            # Auto-adjust column widths
+            for column in ws_prospects.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                ws_prospects.column_dimensions[column_letter].width = adjusted_width
+            
+            self.logger.info("Created prospects sheet with undervaluation ranking")
+            
+        except Exception as e:
+            self.logger.error(f"Error creating prospects sheet: {e}")
 
 def main():
     """Main function"""
