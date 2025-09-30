@@ -937,7 +937,7 @@ class StockValuationScraper:
                             max_length = len(str(cell.value))
                     except:
                         pass
-                adjusted_width = min(max_length + 2, 30)  # Cap at 30 for readability
+                adjusted_width = min(max_length + 2, 35)  # Cap at 35 for better readability
                 ws_data.column_dimensions[column_letter].width = adjusted_width
             
             # Save files
@@ -966,13 +966,13 @@ class StockValuationScraper:
             border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                           top=Side(style='thin'), bottom=Side(style='thin'))
             
-            # Define conditional formatting colors
-            strong_buy_fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")  # Green
-            buy_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")  # Light Green
-            hold_fill = PatternFill(start_color="FFFFE0", end_color="FFFFE0", fill_type="solid")  # Light Yellow
-            sell_fill = PatternFill(start_color="FFB6C1", end_color="FFB6C1", fill_type="solid")  # Light Red
-            strong_sell_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")  # Red
-            no_data_fill = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")  # Light Gray
+            # Consistent conditional formatting fills (matching Prospects sheet)
+            strong_buy_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+            buy_fill = PatternFill(start_color="98FB98", end_color="98FB98", fill_type="solid")
+            hold_fill = PatternFill(start_color="FFFFE0", end_color="FFFFE0", fill_type="solid")
+            sell_fill = PatternFill(start_color="FFB6C1", end_color="FFB6C1", fill_type="solid")
+            strong_sell_fill = PatternFill(start_color="FFA0A0", end_color="FFA0A0", fill_type="solid")
+            no_data_fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")
             
             row = 1
             
@@ -1310,11 +1310,11 @@ class StockValuationScraper:
                 row += 1
             
             # Set optimal column widths for readability
-            ws_summary.column_dimensions['A'].width = 40  # Company name and ticker
-            ws_summary.column_dimensions['B'].width = 30  # Peter Lynch valuation
-            ws_summary.column_dimensions['C'].width = 30  # DCF valuation
-            ws_summary.column_dimensions['D'].width = 30  # Munger Farm valuation
-            ws_summary.column_dimensions['E'].width = 18  # Current price
+            ws_summary.column_dimensions['A'].width = 45  # Company name and ticker
+            ws_summary.column_dimensions['B'].width = 35  # Peter Lynch valuation
+            ws_summary.column_dimensions['C'].width = 35  # DCF valuation
+            ws_summary.column_dimensions['D'].width = 35  # Munger Farm valuation
+            ws_summary.column_dimensions['E'].width = 20  # Current price
             
             self.logger.info("Created valuation summary sheet with conditional formatting")
             
@@ -1326,7 +1326,7 @@ class StockValuationScraper:
         try:
             ws_prospects = wb.create_sheet('Prospects', 1)
             
-            # Define styles
+            # Define consistent color scheme across all sheets
             header_fill = PatternFill(start_color="2F4F4F", end_color="2F4F4F", fill_type="solid")
             header_font = Font(bold=True, color="FFFFFF", size=14)
             subheader_font = Font(bold=True, size=12)
@@ -1334,7 +1334,7 @@ class StockValuationScraper:
             border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                           top=Side(style='thin'), bottom=Side(style='thin'))
             
-            # Conditional formatting fills
+            # Consistent conditional formatting fills
             strong_buy_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
             buy_fill = PatternFill(start_color="98FB98", end_color="98FB98", fill_type="solid")
             hold_fill = PatternFill(start_color="FFFFE0", end_color="FFFFE0", fill_type="solid")
@@ -1698,11 +1698,11 @@ class StockValuationScraper:
                 ws_prospects.cell(row=row, column=col).alignment = Alignment(horizontal='center', vertical='center')
             
             # Set optimal column widths for readability
-            ws_prospects.column_dimensions['A'].width = 40  # Company name and ticker
-            ws_prospects.column_dimensions['B'].width = 30  # Peter Lynch valuation
-            ws_prospects.column_dimensions['C'].width = 30  # DCF valuation
-            ws_prospects.column_dimensions['D'].width = 30  # Munger Farm valuation
-            ws_prospects.column_dimensions['E'].width = 18  # Current price
+            ws_prospects.column_dimensions['A'].width = 45  # Company name and ticker
+            ws_prospects.column_dimensions['B'].width = 35  # Peter Lynch valuation
+            ws_prospects.column_dimensions['C'].width = 35  # DCF valuation
+            ws_prospects.column_dimensions['D'].width = 35  # Munger Farm valuation
+            ws_prospects.column_dimensions['E'].width = 20  # Current price
             
             self.logger.info("Created prospects sheet with undervaluation ranking")
             
