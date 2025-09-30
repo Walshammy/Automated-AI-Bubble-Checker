@@ -927,6 +927,19 @@ class StockValuationScraper:
                     ws_data.cell(row=next_row, column=col, value=value)
                 next_row += 1
             
+            # Auto-adjust column widths for Valuation Data sheet
+            for column in ws_data.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 30)  # Cap at 30 for readability
+                ws_data.column_dimensions[column_letter].width = adjusted_width
+            
             # Save files
             wb.save(self.master_file)
             wb.save(daily_backup_file)
@@ -1296,12 +1309,12 @@ class StockValuationScraper:
                 ws_summary[f'A{row}'].alignment = Alignment(horizontal='left', vertical='center')
                 row += 1
             
-            # Auto-adjust column widths
-            ws_summary.column_dimensions['A'].width = 35
-            ws_summary.column_dimensions['B'].width = 25
-            ws_summary.column_dimensions['C'].width = 25
-            ws_summary.column_dimensions['D'].width = 25
-            ws_summary.column_dimensions['E'].width = 15
+            # Set optimal column widths for readability
+            ws_summary.column_dimensions['A'].width = 40  # Company name and ticker
+            ws_summary.column_dimensions['B'].width = 30  # Peter Lynch valuation
+            ws_summary.column_dimensions['C'].width = 30  # DCF valuation
+            ws_summary.column_dimensions['D'].width = 30  # Munger Farm valuation
+            ws_summary.column_dimensions['E'].width = 18  # Current price
             
             self.logger.info("Created valuation summary sheet with conditional formatting")
             
@@ -1684,18 +1697,12 @@ class StockValuationScraper:
                 ws_prospects.cell(row=row, column=col).border = border
                 ws_prospects.cell(row=row, column=col).alignment = Alignment(horizontal='center', vertical='center')
             
-            # Auto-adjust column widths
-            for column in ws_prospects.columns:
-                max_length = 0
-                column_letter = column[0].column_letter
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(str(cell.value))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 50)
-                ws_prospects.column_dimensions[column_letter].width = adjusted_width
+            # Set optimal column widths for readability
+            ws_prospects.column_dimensions['A'].width = 40  # Company name and ticker
+            ws_prospects.column_dimensions['B'].width = 30  # Peter Lynch valuation
+            ws_prospects.column_dimensions['C'].width = 30  # DCF valuation
+            ws_prospects.column_dimensions['D'].width = 30  # Munger Farm valuation
+            ws_prospects.column_dimensions['E'].width = 18  # Current price
             
             self.logger.info("Created prospects sheet with undervaluation ranking")
             
