@@ -341,7 +341,11 @@ class StockValuationScraper:
                 'beta': info.get('beta', None),
                 '52_week_high': info.get('fiftyTwoWeekHigh', None),
                 '52_week_low': info.get('fiftyTwoWeekLow', None),
-                'enterprise_value': info.get('enterpriseValue', None)
+                'enterprise_value': info.get('enterpriseValue', None),
+                'net_income': info.get('netIncomeToCommon', None),
+                'revenue': info.get('totalRevenue', None),
+                'ebitda': info.get('ebitda', None),
+                'sector': info.get('sector', 'Unknown')
             }
             
             return financial_data
@@ -414,6 +418,7 @@ class StockValuationScraper:
             forward_pe = stock_data.get('forward_pe', 0)
             dividend_yield = stock_data.get('dividend_yield', 0)
             earnings_growth = stock_data.get('earnings_growth', 0)
+            sector = stock_data.get('sector', 'Unknown')
             
             # Use forward P/E if available, otherwise trailing P/E
             pe_ratio = forward_pe if forward_pe and forward_pe > 0 else trailing_pe
@@ -435,7 +440,7 @@ class StockValuationScraper:
                     'advanced_delta_percentage': None
                 }
             
-            # Calculate earnings growth rate
+            # Calculate earnings growth rate (keep as decimal, not percentage)
             if earnings_growth:
                 eps_growth_rate = earnings_growth
             elif historical_data and historical_data.get('5_year_price_growth_rate'):
@@ -445,12 +450,16 @@ class StockValuationScraper:
                 # Conservative estimate
                 eps_growth_rate = 0.10  # 10% growth
             
-            # Convert to percentage
-            eps_growth_rate = eps_growth_rate * 100
+            # Keep as decimal for calculations, convert to percentage only for display
+            eps_growth_rate_decimal = eps_growth_rate
+            eps_growth_rate_percentage = eps_growth_rate * 100
+            
+            # Convert dividend yield from percentage to decimal for calculation
+            dividend_yield_decimal = dividend_yield / 100 if dividend_yield else 0
             
             # Basic Lynch Ratio Calculation with division by zero protection
             if pe_ratio and pe_ratio > 0:
-                lynch_ratio = (eps_growth_rate + dividend_yield) / pe_ratio
+                lynch_ratio = (eps_growth_rate_decimal + dividend_yield_decimal) / pe_ratio
                 # Cap extreme Lynch ratios to prevent unrealistic valuations
                 lynch_ratio = min(lynch_ratio, 5.0)  # Cap at 5x (500% upside)
             else:
@@ -461,7 +470,7 @@ class StockValuationScraper:
                     'Real Estate': 15, 'Unknown': 15
                 }
                 default_pe = sector_defaults.get(sector, 15)
-                lynch_ratio = (eps_growth_rate + dividend_yield) / default_pe
+                lynch_ratio = (eps_growth_rate_decimal + dividend_yield_decimal) / default_pe
                 lynch_ratio = min(lynch_ratio, 3.0)  # More conservative cap for default P/E
             
             # Interpretation using configuration thresholds
@@ -487,15 +496,15 @@ class StockValuationScraper:
                 intrinsic_value = 0
                 delta = 0
             
-            # Advanced weighted growth rate calculation
-            forward_eps_growth = eps_growth_rate
-            historical_eps_growth = historical_data.get('5_year_price_growth_rate', 0) * 100 if historical_data else 0
+            # Advanced weighted growth rate calculation (keep as decimal)
+            forward_eps_growth = eps_growth_rate_decimal
+            historical_eps_growth = historical_data.get('5_year_price_growth_rate', 0) if historical_data else 0
             
             weighted_growth_rate = ((forward_eps_growth * 2) + historical_eps_growth) / 3
             
             # Advanced Lynch Ratio with weighted growth
             if pe_ratio and pe_ratio > 0:
-                advanced_lynch_ratio = (weighted_growth_rate + dividend_yield) / pe_ratio
+                advanced_lynch_ratio = (weighted_growth_rate + dividend_yield_decimal) / pe_ratio
                 # Cap extreme ratios
                 advanced_lynch_ratio = min(advanced_lynch_ratio, 5.0)
             else:
@@ -518,10 +527,10 @@ class StockValuationScraper:
                 'valuation_color': valuation_color,
                 'intrinsic_value': intrinsic_value,
                 'delta_percentage': delta * 100,
-                'eps_growth_rate': eps_growth_rate,
+                'eps_growth_rate': eps_growth_rate_percentage,  # Return percentage for display
                 'pe_ratio': pe_ratio,
-                'dividend_yield': dividend_yield,
-                'weighted_growth_rate': weighted_growth_rate,
+                'dividend_yield': dividend_yield,  # Already in percentage
+                'weighted_growth_rate': weighted_growth_rate * 100,  # Convert to percentage for display
                 'advanced_lynch_ratio': advanced_lynch_ratio,
                 'advanced_intrinsic_value': advanced_intrinsic_value,
                 'advanced_delta_percentage': advanced_delta * 100
@@ -1464,30 +1473,76 @@ class StockValuationScraper:
         self.logger.info(f"Collected {len(valuation_data)} valuation metrics for {ticker}")
         return valuation_data
 
+    def load_existing_data(self):
+        """Load existing valuation data if available and recent"""
+        try:
+            if not os.path.exists(self.master_file):
+                return None
+            
+            # Load existing data
+            df_existing = pd.read_excel(self.master_file, sheet_name='Valuation Data')
+            
+            # Check if data has required new fields
+            required_fields = ['net_income', 'revenue', 'ebitda', 'sector']
+            missing_fields = [field for field in required_fields if field not in df_existing.columns]
+            
+            if missing_fields:
+                self.logger.info(f"Existing data missing required fields: {missing_fields}, will fetch fresh data")
+                return None
+            
+            # Check if data is recent (within last 1 hour for fresh calculations)
+            if 'analysis_timestamp' in df_existing.columns:
+                latest_timestamp = pd.to_datetime(df_existing['analysis_timestamp']).max()
+                time_diff = datetime.now() - latest_timestamp
+                
+                if time_diff.total_seconds() < 1 * 3600:  # 1 hour for fresh data
+                    self.logger.info(f"Using existing data from {latest_timestamp} (age: {time_diff})")
+                    return df_existing
+            
+            self.logger.info("Existing data is stale, will fetch fresh data")
+            return None
+            
+        except Exception as e:
+            self.logger.warning(f"Could not load existing data: {e}")
+            return None
+
     def run(self):
         """Main execution method"""
         self.logger.info("Starting Stock Valuation Scraper")
         start_time = datetime.now()
         
         try:
-            # Collect valuation metrics for focus stocks
-            all_valuation_data = []
+            # Try to load existing data first
+            existing_df = self.load_existing_data()
             
-            for ticker, company_name in self.focus_stocks.items():
-                self.logger.info(f"Analyzing {company_name} ({ticker})")
-                valuation_data = self.collect_valuation_metrics(ticker)
-                if valuation_data:
-                    all_valuation_data.append(valuation_data)
+            if existing_df is not None:
+                # Use existing data
+                df = existing_df
+                self.logger.info(f"Using existing data with {len(df)} stocks")
+            else:
+                # Collect fresh valuation metrics for focus stocks
+                all_valuation_data = []
+                
+                for ticker, company_name in self.focus_stocks.items():
+                    self.logger.info(f"Analyzing {company_name} ({ticker})")
+                    valuation_data = self.collect_valuation_metrics(ticker)
+                    if valuation_data:
+                        all_valuation_data.append(valuation_data)
+                
+                if all_valuation_data:
+                    # Create DataFrame
+                    df = pd.DataFrame(all_valuation_data)
+                    # Add timestamp
+                    df['analysis_timestamp'] = datetime.now()
+                else:
+                    self.logger.error("No valuation data collected")
+                    return
             
-            if all_valuation_data:
-                # Create DataFrame
-                df = pd.DataFrame(all_valuation_data)
-                
-                # Save dataset
-                self.save_dataset(df)
-                
-                # Print summary
-                self.print_valuation_summary(df)
+            # Save dataset
+            self.save_dataset(df)
+            
+            # Print summary
+            self.print_valuation_summary(df)
             
             end_time = datetime.now()
             duration = end_time - start_time
@@ -1813,6 +1868,145 @@ class StockValuationScraper:
                     ws_summary[f'D{row}'].alignment = Alignment(horizontal='center', vertical='center')
                     ws_summary[f'D{row}'].fill = no_data_fill
                 
+                # Enhanced DCF Valuation (Column E)
+                enhanced_dcf_status = stock_row.get('enhanced_dcf_status', 'N/A')
+                enhanced_dcf_delta = stock_row.get('enhanced_dcf_delta', 0)
+                
+                if enhanced_dcf_status != 'N/A':
+                    enhanced_dcf_text = f"{enhanced_dcf_status}\nDelta: {enhanced_dcf_delta:+.1f}%"
+                    ws_summary[f'E{row}'] = enhanced_dcf_text
+                    ws_summary[f'E{row}'].font = data_font
+                    ws_summary[f'E{row}'].border = border
+                    ws_summary[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta > 20:
+                        ws_summary[f'E{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta > 5:
+                        ws_summary[f'E{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in enhanced_dcf_status.upper() or abs(enhanced_dcf_delta) <= 5:
+                        ws_summary[f'E{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta < -5:
+                        ws_summary[f'E{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta < -20:
+                        ws_summary[f'E{row}'].fill = strong_sell_fill
+                else:
+                    ws_summary[f'E{row}'] = "Insufficient Data"
+                    ws_summary[f'E{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_summary[f'E{row}'].border = border
+                    ws_summary[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_summary[f'E{row}'].fill = no_data_fill
+                
+                # Relative Valuation (Column F)
+                relative_status = stock_row.get('relative_valuation_status', 'N/A')
+                relative_delta = stock_row.get('relative_valuation_delta', 0)
+                
+                if relative_status != 'N/A':
+                    relative_text = f"{relative_status}\nDelta: {relative_delta:+.1f}%"
+                    ws_summary[f'F{row}'] = relative_text
+                    ws_summary[f'F{row}'].font = data_font
+                    ws_summary[f'F{row}'].border = border
+                    ws_summary[f'F{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in relative_status.upper() or relative_delta > 20:
+                        ws_summary[f'F{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in relative_status.upper() or relative_delta > 5:
+                        ws_summary[f'F{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in relative_status.upper() or abs(relative_delta) <= 5:
+                        ws_summary[f'F{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in relative_status.upper() or relative_delta < -5:
+                        ws_summary[f'F{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in relative_status.upper() or relative_delta < -20:
+                        ws_summary[f'F{row}'].fill = strong_sell_fill
+                else:
+                    ws_summary[f'F{row}'] = "Insufficient Data"
+                    ws_summary[f'F{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_summary[f'F{row}'].border = border
+                    ws_summary[f'F{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_summary[f'F{row}'].fill = no_data_fill
+                
+                # Reverse DCF Valuation (Column G)
+                reverse_dcf_assessment = stock_row.get('reverse_dcf_assessment', 'N/A')
+                reverse_dcf_growth = stock_row.get('reverse_dcf_implied_growth', 0)
+                
+                if reverse_dcf_assessment != 'N/A':
+                    reverse_dcf_text = f"{reverse_dcf_assessment}\nGrowth: {reverse_dcf_growth:+.1f}%"
+                    ws_summary[f'G{row}'] = reverse_dcf_text
+                    ws_summary[f'G{row}'].font = data_font
+                    ws_summary[f'G{row}'].border = border
+                    ws_summary[f'G{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'REASONABLE' in reverse_dcf_assessment.upper():
+                        ws_summary[f'G{row}'].fill = hold_fill
+                    elif 'UNREASONABLE' in reverse_dcf_assessment.upper():
+                        ws_summary[f'G{row}'].fill = sell_fill
+                    else:
+                        ws_summary[f'G{row}'].fill = no_data_fill
+                else:
+                    ws_summary[f'G{row}'] = "Insufficient Data"
+                    ws_summary[f'G{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_summary[f'G{row}'].border = border
+                    ws_summary[f'G{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_summary[f'G{row}'].fill = no_data_fill
+                
+                # EPV/RIM Valuation (Column H)
+                epv_assessment = stock_row.get('epv_assessment', 'N/A')
+                epv_delta = stock_row.get('epv_delta', 0)
+                rim_assessment = stock_row.get('rim_assessment', 'N/A')
+                rim_delta = stock_row.get('rim_delta', 0)
+                
+                # Use EPV if available, otherwise RIM
+                if epv_assessment != 'N/A':
+                    epv_rim_text = f"EPV: {epv_assessment}\nDelta: {epv_delta:+.1f}%"
+                    ws_summary[f'H{row}'] = epv_rim_text
+                    ws_summary[f'H{row}'].font = data_font
+                    ws_summary[f'H{row}'].border = border
+                    ws_summary[f'H{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in epv_assessment.upper() or epv_delta > 20:
+                        ws_summary[f'H{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in epv_assessment.upper() or epv_delta > 5:
+                        ws_summary[f'H{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in epv_assessment.upper() or abs(epv_delta) <= 5:
+                        ws_summary[f'H{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in epv_assessment.upper() or epv_delta < -5:
+                        ws_summary[f'H{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in epv_assessment.upper() or epv_delta < -20:
+                        ws_summary[f'H{row}'].fill = strong_sell_fill
+                elif rim_assessment != 'N/A':
+                    epv_rim_text = f"RIM: {rim_assessment}\nDelta: {rim_delta:+.1f}%"
+                    ws_summary[f'H{row}'] = epv_rim_text
+                    ws_summary[f'H{row}'].font = data_font
+                    ws_summary[f'H{row}'].border = border
+                    ws_summary[f'H{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in rim_assessment.upper() or rim_delta > 20:
+                        ws_summary[f'H{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in rim_assessment.upper() or rim_delta > 5:
+                        ws_summary[f'H{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in rim_assessment.upper() or abs(rim_delta) <= 5:
+                        ws_summary[f'H{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in rim_assessment.upper() or rim_delta < -5:
+                        ws_summary[f'H{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in rim_assessment.upper() or rim_delta < -20:
+                        ws_summary[f'H{row}'].fill = strong_sell_fill
+                else:
+                    ws_summary[f'H{row}'] = "Insufficient Data"
+                    ws_summary[f'H{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_summary[f'H{row}'].border = border
+                    ws_summary[f'H{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_summary[f'H{row}'].fill = no_data_fill
+                
+                # Current Price (Column I)
+                ws_summary[f'I{row}'] = f"${current_price:,.2f}" if current_price else "N/A"
+                ws_summary[f'I{row}'].font = data_font
+                ws_summary[f'I{row}'].border = border
+                ws_summary[f'I{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                
                 row += 1
             
             # Add stocks with partial data (1-2 valuation methods)
@@ -1920,6 +2114,145 @@ class StockValuationScraper:
                     ws_summary[f'D{row}'].alignment = Alignment(horizontal='center', vertical='center')
                     ws_summary[f'D{row}'].fill = no_data_fill
                 
+                # Enhanced DCF Valuation (Column E)
+                enhanced_dcf_status = stock_row.get('enhanced_dcf_status', 'N/A')
+                enhanced_dcf_delta = stock_row.get('enhanced_dcf_delta', 0)
+                
+                if enhanced_dcf_status != 'N/A':
+                    enhanced_dcf_text = f"{enhanced_dcf_status}\nDelta: {enhanced_dcf_delta:+.1f}%"
+                    ws_summary[f'E{row}'] = enhanced_dcf_text
+                    ws_summary[f'E{row}'].font = data_font
+                    ws_summary[f'E{row}'].border = border
+                    ws_summary[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta > 20:
+                        ws_summary[f'E{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta > 5:
+                        ws_summary[f'E{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in enhanced_dcf_status.upper() or abs(enhanced_dcf_delta) <= 5:
+                        ws_summary[f'E{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta < -5:
+                        ws_summary[f'E{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta < -20:
+                        ws_summary[f'E{row}'].fill = strong_sell_fill
+                else:
+                    ws_summary[f'E{row}'] = "Insufficient Data"
+                    ws_summary[f'E{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_summary[f'E{row}'].border = border
+                    ws_summary[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_summary[f'E{row}'].fill = no_data_fill
+                
+                # Relative Valuation (Column F)
+                relative_status = stock_row.get('relative_valuation_status', 'N/A')
+                relative_delta = stock_row.get('relative_valuation_delta', 0)
+                
+                if relative_status != 'N/A':
+                    relative_text = f"{relative_status}\nDelta: {relative_delta:+.1f}%"
+                    ws_summary[f'F{row}'] = relative_text
+                    ws_summary[f'F{row}'].font = data_font
+                    ws_summary[f'F{row}'].border = border
+                    ws_summary[f'F{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in relative_status.upper() or relative_delta > 20:
+                        ws_summary[f'F{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in relative_status.upper() or relative_delta > 5:
+                        ws_summary[f'F{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in relative_status.upper() or abs(relative_delta) <= 5:
+                        ws_summary[f'F{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in relative_status.upper() or relative_delta < -5:
+                        ws_summary[f'F{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in relative_status.upper() or relative_delta < -20:
+                        ws_summary[f'F{row}'].fill = strong_sell_fill
+                else:
+                    ws_summary[f'F{row}'] = "Insufficient Data"
+                    ws_summary[f'F{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_summary[f'F{row}'].border = border
+                    ws_summary[f'F{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_summary[f'F{row}'].fill = no_data_fill
+                
+                # Reverse DCF Valuation (Column G)
+                reverse_dcf_assessment = stock_row.get('reverse_dcf_assessment', 'N/A')
+                reverse_dcf_growth = stock_row.get('reverse_dcf_implied_growth', 0)
+                
+                if reverse_dcf_assessment != 'N/A':
+                    reverse_dcf_text = f"{reverse_dcf_assessment}\nGrowth: {reverse_dcf_growth:+.1f}%"
+                    ws_summary[f'G{row}'] = reverse_dcf_text
+                    ws_summary[f'G{row}'].font = data_font
+                    ws_summary[f'G{row}'].border = border
+                    ws_summary[f'G{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'REASONABLE' in reverse_dcf_assessment.upper():
+                        ws_summary[f'G{row}'].fill = hold_fill
+                    elif 'UNREASONABLE' in reverse_dcf_assessment.upper():
+                        ws_summary[f'G{row}'].fill = sell_fill
+                    else:
+                        ws_summary[f'G{row}'].fill = no_data_fill
+                else:
+                    ws_summary[f'G{row}'] = "Insufficient Data"
+                    ws_summary[f'G{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_summary[f'G{row}'].border = border
+                    ws_summary[f'G{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_summary[f'G{row}'].fill = no_data_fill
+                
+                # EPV/RIM Valuation (Column H)
+                epv_assessment = stock_row.get('epv_assessment', 'N/A')
+                epv_delta = stock_row.get('epv_delta', 0)
+                rim_assessment = stock_row.get('rim_assessment', 'N/A')
+                rim_delta = stock_row.get('rim_delta', 0)
+                
+                # Use EPV if available, otherwise RIM
+                if epv_assessment != 'N/A':
+                    epv_rim_text = f"EPV: {epv_assessment}\nDelta: {epv_delta:+.1f}%"
+                    ws_summary[f'H{row}'] = epv_rim_text
+                    ws_summary[f'H{row}'].font = data_font
+                    ws_summary[f'H{row}'].border = border
+                    ws_summary[f'H{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in epv_assessment.upper() or epv_delta > 20:
+                        ws_summary[f'H{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in epv_assessment.upper() or epv_delta > 5:
+                        ws_summary[f'H{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in epv_assessment.upper() or abs(epv_delta) <= 5:
+                        ws_summary[f'H{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in epv_assessment.upper() or epv_delta < -5:
+                        ws_summary[f'H{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in epv_assessment.upper() or epv_delta < -20:
+                        ws_summary[f'H{row}'].fill = strong_sell_fill
+                elif rim_assessment != 'N/A':
+                    epv_rim_text = f"RIM: {rim_assessment}\nDelta: {rim_delta:+.1f}%"
+                    ws_summary[f'H{row}'] = epv_rim_text
+                    ws_summary[f'H{row}'].font = data_font
+                    ws_summary[f'H{row}'].border = border
+                    ws_summary[f'H{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in rim_assessment.upper() or rim_delta > 20:
+                        ws_summary[f'H{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in rim_assessment.upper() or rim_delta > 5:
+                        ws_summary[f'H{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in rim_assessment.upper() or abs(rim_delta) <= 5:
+                        ws_summary[f'H{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in rim_assessment.upper() or rim_delta < -5:
+                        ws_summary[f'H{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in rim_assessment.upper() or rim_delta < -20:
+                        ws_summary[f'H{row}'].fill = strong_sell_fill
+                else:
+                    ws_summary[f'H{row}'] = "Insufficient Data"
+                    ws_summary[f'H{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_summary[f'H{row}'].border = border
+                    ws_summary[f'H{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_summary[f'H{row}'].fill = no_data_fill
+                
+                # Current Price (Column I)
+                ws_summary[f'I{row}'] = f"${current_price:,.2f}" if current_price else "N/A"
+                ws_summary[f'I{row}'].font = data_font
+                ws_summary[f'I{row}'].border = border
+                ws_summary[f'I{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                
                 row += 1
             
             # Add stocks with insufficient data at the bottom
@@ -1988,7 +2321,11 @@ class StockValuationScraper:
             ws_summary.column_dimensions['B'].width = 35  # Peter Lynch valuation
             ws_summary.column_dimensions['C'].width = 35  # DCF valuation
             ws_summary.column_dimensions['D'].width = 35  # Munger Farm valuation
-            ws_summary.column_dimensions['E'].width = 20  # Current price
+            ws_summary.column_dimensions['E'].width = 35  # Enhanced DCF valuation
+            ws_summary.column_dimensions['F'].width = 35  # Relative Valuation
+            ws_summary.column_dimensions['G'].width = 35  # Reverse DCF valuation
+            ws_summary.column_dimensions['H'].width = 35  # EPV/RIM valuation
+            ws_summary.column_dimensions['I'].width = 20  # Current price
             
             self.logger.info("Created valuation summary sheet with conditional formatting")
             
@@ -2201,6 +2538,145 @@ class StockValuationScraper:
                     ws_prospects[f'D{row}'].alignment = Alignment(horizontal='center', vertical='center')
                     ws_prospects[f'D{row}'].fill = no_data_fill
                 
+                # Enhanced DCF Valuation (Column E)
+                enhanced_dcf_status = stock_row.get('enhanced_dcf_status', 'N/A')
+                enhanced_dcf_delta = stock_row.get('enhanced_dcf_delta', 0)
+                
+                if enhanced_dcf_status != 'N/A':
+                    enhanced_dcf_text = f"{enhanced_dcf_status}\nDelta: {enhanced_dcf_delta:+.1f}%"
+                    ws_prospects[f'E{row}'] = enhanced_dcf_text
+                    ws_prospects[f'E{row}'].font = data_font
+                    ws_prospects[f'E{row}'].border = border
+                    ws_prospects[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta > 20:
+                        ws_prospects[f'E{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta > 5:
+                        ws_prospects[f'E{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in enhanced_dcf_status.upper() or abs(enhanced_dcf_delta) <= 5:
+                        ws_prospects[f'E{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta < -5:
+                        ws_prospects[f'E{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta < -20:
+                        ws_prospects[f'E{row}'].fill = strong_sell_fill
+                else:
+                    ws_prospects[f'E{row}'] = "Insufficient Data"
+                    ws_prospects[f'E{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'E{row}'].border = border
+                    ws_prospects[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'E{row}'].fill = no_data_fill
+                
+                # Relative Valuation (Column F)
+                relative_status = stock_row.get('relative_valuation_status', 'N/A')
+                relative_delta = stock_row.get('relative_valuation_delta', 0)
+                
+                if relative_status != 'N/A':
+                    relative_text = f"{relative_status}\nDelta: {relative_delta:+.1f}%"
+                    ws_prospects[f'F{row}'] = relative_text
+                    ws_prospects[f'F{row}'].font = data_font
+                    ws_prospects[f'F{row}'].border = border
+                    ws_prospects[f'F{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in relative_status.upper() or relative_delta > 20:
+                        ws_prospects[f'F{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in relative_status.upper() or relative_delta > 5:
+                        ws_prospects[f'F{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in relative_status.upper() or abs(relative_delta) <= 5:
+                        ws_prospects[f'F{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in relative_status.upper() or relative_delta < -5:
+                        ws_prospects[f'F{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in relative_status.upper() or relative_delta < -20:
+                        ws_prospects[f'F{row}'].fill = strong_sell_fill
+                else:
+                    ws_prospects[f'F{row}'] = "Insufficient Data"
+                    ws_prospects[f'F{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'F{row}'].border = border
+                    ws_prospects[f'F{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'F{row}'].fill = no_data_fill
+                
+                # Reverse DCF Valuation (Column G)
+                reverse_dcf_assessment = stock_row.get('reverse_dcf_assessment', 'N/A')
+                reverse_dcf_growth = stock_row.get('reverse_dcf_implied_growth', 0)
+                
+                if reverse_dcf_assessment != 'N/A':
+                    reverse_dcf_text = f"{reverse_dcf_assessment}\nGrowth: {reverse_dcf_growth:+.1f}%"
+                    ws_prospects[f'G{row}'] = reverse_dcf_text
+                    ws_prospects[f'G{row}'].font = data_font
+                    ws_prospects[f'G{row}'].border = border
+                    ws_prospects[f'G{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'REASONABLE' in reverse_dcf_assessment.upper():
+                        ws_prospects[f'G{row}'].fill = hold_fill
+                    elif 'UNREASONABLE' in reverse_dcf_assessment.upper():
+                        ws_prospects[f'G{row}'].fill = sell_fill
+                    else:
+                        ws_prospects[f'G{row}'].fill = no_data_fill
+                else:
+                    ws_prospects[f'G{row}'] = "Insufficient Data"
+                    ws_prospects[f'G{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'G{row}'].border = border
+                    ws_prospects[f'G{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'G{row}'].fill = no_data_fill
+                
+                # EPV/RIM Valuation (Column H)
+                epv_assessment = stock_row.get('epv_assessment', 'N/A')
+                epv_delta = stock_row.get('epv_delta', 0)
+                rim_assessment = stock_row.get('rim_assessment', 'N/A')
+                rim_delta = stock_row.get('rim_delta', 0)
+                
+                # Use EPV if available, otherwise RIM
+                if epv_assessment != 'N/A':
+                    epv_rim_text = f"EPV: {epv_assessment}\nDelta: {epv_delta:+.1f}%"
+                    ws_prospects[f'H{row}'] = epv_rim_text
+                    ws_prospects[f'H{row}'].font = data_font
+                    ws_prospects[f'H{row}'].border = border
+                    ws_prospects[f'H{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in epv_assessment.upper() or epv_delta > 20:
+                        ws_prospects[f'H{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in epv_assessment.upper() or epv_delta > 5:
+                        ws_prospects[f'H{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in epv_assessment.upper() or abs(epv_delta) <= 5:
+                        ws_prospects[f'H{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in epv_assessment.upper() or epv_delta < -5:
+                        ws_prospects[f'H{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in epv_assessment.upper() or epv_delta < -20:
+                        ws_prospects[f'H{row}'].fill = strong_sell_fill
+                elif rim_assessment != 'N/A':
+                    epv_rim_text = f"RIM: {rim_assessment}\nDelta: {rim_delta:+.1f}%"
+                    ws_prospects[f'H{row}'] = epv_rim_text
+                    ws_prospects[f'H{row}'].font = data_font
+                    ws_prospects[f'H{row}'].border = border
+                    ws_prospects[f'H{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in rim_assessment.upper() or rim_delta > 20:
+                        ws_prospects[f'H{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in rim_assessment.upper() or rim_delta > 5:
+                        ws_prospects[f'H{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in rim_assessment.upper() or abs(rim_delta) <= 5:
+                        ws_prospects[f'H{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in rim_assessment.upper() or rim_delta < -5:
+                        ws_prospects[f'H{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in rim_assessment.upper() or rim_delta < -20:
+                        ws_prospects[f'H{row}'].fill = strong_sell_fill
+                else:
+                    ws_prospects[f'H{row}'] = "Insufficient Data"
+                    ws_prospects[f'H{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'H{row}'].border = border
+                    ws_prospects[f'H{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'H{row}'].fill = no_data_fill
+                
+                # Current Price (Column I)
+                ws_prospects[f'I{row}'] = f"${current_price:,.2f}" if current_price else "N/A"
+                ws_prospects[f'I{row}'].font = data_font
+                ws_prospects[f'I{row}'].border = border
+                ws_prospects[f'I{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                
                 row += 1
             
             # Add stocks with partial data (ranked by undervaluation)
@@ -2308,6 +2784,145 @@ class StockValuationScraper:
                     ws_prospects[f'D{row}'].alignment = Alignment(horizontal='center', vertical='center')
                     ws_prospects[f'D{row}'].fill = no_data_fill
                 
+                # Enhanced DCF Valuation (Column E)
+                enhanced_dcf_status = stock_row.get('enhanced_dcf_status', 'N/A')
+                enhanced_dcf_delta = stock_row.get('enhanced_dcf_delta', 0)
+                
+                if enhanced_dcf_status != 'N/A':
+                    enhanced_dcf_text = f"{enhanced_dcf_status}\nDelta: {enhanced_dcf_delta:+.1f}%"
+                    ws_prospects[f'E{row}'] = enhanced_dcf_text
+                    ws_prospects[f'E{row}'].font = data_font
+                    ws_prospects[f'E{row}'].border = border
+                    ws_prospects[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta > 20:
+                        ws_prospects[f'E{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta > 5:
+                        ws_prospects[f'E{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in enhanced_dcf_status.upper() or abs(enhanced_dcf_delta) <= 5:
+                        ws_prospects[f'E{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta < -5:
+                        ws_prospects[f'E{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in enhanced_dcf_status.upper() or enhanced_dcf_delta < -20:
+                        ws_prospects[f'E{row}'].fill = strong_sell_fill
+                else:
+                    ws_prospects[f'E{row}'] = "Insufficient Data"
+                    ws_prospects[f'E{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'E{row}'].border = border
+                    ws_prospects[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'E{row}'].fill = no_data_fill
+                
+                # Relative Valuation (Column F)
+                relative_status = stock_row.get('relative_valuation_status', 'N/A')
+                relative_delta = stock_row.get('relative_valuation_delta', 0)
+                
+                if relative_status != 'N/A':
+                    relative_text = f"{relative_status}\nDelta: {relative_delta:+.1f}%"
+                    ws_prospects[f'F{row}'] = relative_text
+                    ws_prospects[f'F{row}'].font = data_font
+                    ws_prospects[f'F{row}'].border = border
+                    ws_prospects[f'F{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in relative_status.upper() or relative_delta > 20:
+                        ws_prospects[f'F{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in relative_status.upper() or relative_delta > 5:
+                        ws_prospects[f'F{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in relative_status.upper() or abs(relative_delta) <= 5:
+                        ws_prospects[f'F{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in relative_status.upper() or relative_delta < -5:
+                        ws_prospects[f'F{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in relative_status.upper() or relative_delta < -20:
+                        ws_prospects[f'F{row}'].fill = strong_sell_fill
+                else:
+                    ws_prospects[f'F{row}'] = "Insufficient Data"
+                    ws_prospects[f'F{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'F{row}'].border = border
+                    ws_prospects[f'F{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'F{row}'].fill = no_data_fill
+                
+                # Reverse DCF Valuation (Column G)
+                reverse_dcf_assessment = stock_row.get('reverse_dcf_assessment', 'N/A')
+                reverse_dcf_growth = stock_row.get('reverse_dcf_implied_growth', 0)
+                
+                if reverse_dcf_assessment != 'N/A':
+                    reverse_dcf_text = f"{reverse_dcf_assessment}\nGrowth: {reverse_dcf_growth:+.1f}%"
+                    ws_prospects[f'G{row}'] = reverse_dcf_text
+                    ws_prospects[f'G{row}'].font = data_font
+                    ws_prospects[f'G{row}'].border = border
+                    ws_prospects[f'G{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'REASONABLE' in reverse_dcf_assessment.upper():
+                        ws_prospects[f'G{row}'].fill = hold_fill
+                    elif 'UNREASONABLE' in reverse_dcf_assessment.upper():
+                        ws_prospects[f'G{row}'].fill = sell_fill
+                    else:
+                        ws_prospects[f'G{row}'].fill = no_data_fill
+                else:
+                    ws_prospects[f'G{row}'] = "Insufficient Data"
+                    ws_prospects[f'G{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'G{row}'].border = border
+                    ws_prospects[f'G{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'G{row}'].fill = no_data_fill
+                
+                # EPV/RIM Valuation (Column H)
+                epv_assessment = stock_row.get('epv_assessment', 'N/A')
+                epv_delta = stock_row.get('epv_delta', 0)
+                rim_assessment = stock_row.get('rim_assessment', 'N/A')
+                rim_delta = stock_row.get('rim_delta', 0)
+                
+                # Use EPV if available, otherwise RIM
+                if epv_assessment != 'N/A':
+                    epv_rim_text = f"EPV: {epv_assessment}\nDelta: {epv_delta:+.1f}%"
+                    ws_prospects[f'H{row}'] = epv_rim_text
+                    ws_prospects[f'H{row}'].font = data_font
+                    ws_prospects[f'H{row}'].border = border
+                    ws_prospects[f'H{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in epv_assessment.upper() or epv_delta > 20:
+                        ws_prospects[f'H{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in epv_assessment.upper() or epv_delta > 5:
+                        ws_prospects[f'H{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in epv_assessment.upper() or abs(epv_delta) <= 5:
+                        ws_prospects[f'H{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in epv_assessment.upper() or epv_delta < -5:
+                        ws_prospects[f'H{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in epv_assessment.upper() or epv_delta < -20:
+                        ws_prospects[f'H{row}'].fill = strong_sell_fill
+                elif rim_assessment != 'N/A':
+                    epv_rim_text = f"RIM: {rim_assessment}\nDelta: {rim_delta:+.1f}%"
+                    ws_prospects[f'H{row}'] = epv_rim_text
+                    ws_prospects[f'H{row}'].font = data_font
+                    ws_prospects[f'H{row}'].border = border
+                    ws_prospects[f'H{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    
+                    # Apply conditional formatting
+                    if 'SIGNIFICANTLY UNDERVALUED' in rim_assessment.upper() or rim_delta > 20:
+                        ws_prospects[f'H{row}'].fill = strong_buy_fill
+                    elif 'UNDERVALUED' in rim_assessment.upper() or rim_delta > 5:
+                        ws_prospects[f'H{row}'].fill = buy_fill
+                    elif 'FAIRLY VALUED' in rim_assessment.upper() or abs(rim_delta) <= 5:
+                        ws_prospects[f'H{row}'].fill = hold_fill
+                    elif 'OVERVALUED' in rim_assessment.upper() or rim_delta < -5:
+                        ws_prospects[f'H{row}'].fill = sell_fill
+                    elif 'SIGNIFICANTLY OVERVALUED' in rim_assessment.upper() or rim_delta < -20:
+                        ws_prospects[f'H{row}'].fill = strong_sell_fill
+                else:
+                    ws_prospects[f'H{row}'] = "Insufficient Data"
+                    ws_prospects[f'H{row}'].font = Font(size=11, color="808080")  # Grey text
+                    ws_prospects[f'H{row}'].border = border
+                    ws_prospects[f'H{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                    ws_prospects[f'H{row}'].fill = no_data_fill
+                
+                # Current Price (Column I)
+                ws_prospects[f'I{row}'] = f"${current_price:,.2f}" if current_price else "N/A"
+                ws_prospects[f'I{row}'].font = data_font
+                ws_prospects[f'I{row}'].border = border
+                ws_prospects[f'I{row}'].alignment = Alignment(horizontal='center', vertical='center')
+                
                 row += 1
             
             # Add stocks with insufficient data at the bottom
@@ -2376,7 +2991,11 @@ class StockValuationScraper:
             ws_prospects.column_dimensions['B'].width = 35  # Peter Lynch valuation
             ws_prospects.column_dimensions['C'].width = 35  # DCF valuation
             ws_prospects.column_dimensions['D'].width = 35  # Munger Farm valuation
-            ws_prospects.column_dimensions['E'].width = 20  # Current price
+            ws_prospects.column_dimensions['E'].width = 35  # Enhanced DCF valuation
+            ws_prospects.column_dimensions['F'].width = 35  # Relative Valuation
+            ws_prospects.column_dimensions['G'].width = 35  # Reverse DCF valuation
+            ws_prospects.column_dimensions['H'].width = 35  # EPV/RIM valuation
+            ws_prospects.column_dimensions['I'].width = 20  # Current price
             
             self.logger.info("Created prospects sheet with undervaluation ranking")
             

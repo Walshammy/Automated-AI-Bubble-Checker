@@ -29,16 +29,21 @@ def check_excel():
             max_col = ws.max_column
             print(f"   Dimensions: {max_row} rows x {max_col} columns")
             
-            # Get headers
-            headers = [cell.value for cell in ws[1]]
-            print(f"   Headers: {headers}")
+            # Get headers - for My Portfolio sheet, headers are in row 5, for others in row 1
+            if sheet_name == 'My Portfolio':
+                header_row = 5
+            else:
+                header_row = 1
+            headers = [cell.value for cell in ws[header_row]]
+            print(f"   Headers (row {header_row}): {headers}")
             
             # Check for data in key columns
             if sheet_name in ['My Portfolio', 'Prospects']:
                 print(f"   [CHECKING] Valuation data population...")
                 
-                # Check first few rows of data
-                for row in range(2, min(6, max_row + 1)):  # Check first 4 data rows
+                # Check first few rows of data - start after headers
+                data_start_row = header_row + 1
+                for row in range(data_start_row, min(data_start_row + 4, max_row + 1)):  # Check first 4 data rows
                     row_data = []
                     for col in range(1, max_col + 1):
                         cell_value = ws.cell(row=row, column=col).value
