@@ -571,7 +571,7 @@ class RobustStockAnalyzer:
         
         # Print value candidates
         if value_candidates:
-            print(f"\n🎯 VALUE CANDIDATES FOUND (P/E < 15, ROE > 10%, Quality):")
+            print(f"\nVALUE CANDIDATES FOUND (P/E < 15, ROE > 10%, Quality):")
             print("=" * 80)
             for candidate in sorted(value_candidates, key=lambda x: x.pe_ratio):
                 print(f"• {candidate.ticker} ({candidate.company_name})")
@@ -583,7 +583,7 @@ class RobustStockAnalyzer:
                     print(f"  Warnings: {'; '.join(candidate.warnings)}")
                 print()
         else:
-            print(f"\n❌ NO VALUE CANDIDATES FOUND")
+            print(f"\nNO VALUE CANDIDATES FOUND")
             print("Current market conditions may not offer traditional value opportunities.")
             print("Consider expanding criteria or waiting for market correction.")
     
