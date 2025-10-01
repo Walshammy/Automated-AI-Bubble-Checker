@@ -515,7 +515,7 @@ class StockValuationScraper:
                     'Real Estate': 15, 'Unknown': 15
                 }
                 default_pe = sector_defaults.get(sector, 15)
-                advanced_lynch_ratio = (weighted_growth_rate + dividend_yield) / default_pe
+                advanced_lynch_ratio = (weighted_growth_rate + dividend_yield_decimal) / default_pe
                 advanced_lynch_ratio = min(advanced_lynch_ratio, 3.0)
             
             advanced_intrinsic_value = current_price * advanced_lynch_ratio
@@ -721,14 +721,14 @@ class StockValuationScraper:
             # Calculate base growth rate with fade periods
             historical_growth = stock_data.get('free_cashflow_growth_rate', 0)
             if historical_growth and historical_growth > 0:
-                adjusted_growth = min(historical_growth * 0.7, 12)
+                adjusted_growth = min(historical_growth * 0.7, 0.12)  # Convert to decimal
                 if beta > 1.2:
                     adjusted_growth *= 0.8
                 elif beta < 0.8:
                     adjusted_growth *= 1.1
-                base_growth_rate = max(adjusted_growth, 2)
+                base_growth_rate = max(adjusted_growth, 0.02)  # Convert to decimal
             else:
-                base_growth_rate = 5
+                base_growth_rate = 0.05  # 5% as decimal
             
             scenario_values = {}
             
@@ -752,13 +752,13 @@ class StockValuationScraper:
                 current_fcf = free_cashflow
                 
                 for year in range(self.projection_years):
-                    current_fcf *= (1 + growth_rates[year] / 100)
+                    current_fcf *= (1 + growth_rates[year])  # growth_rates is now decimal
                     projected_fcf.append(current_fcf)
                 
                 # Calculate terminal value with scenario adjustment
                 last_year_fcf = projected_fcf[-1]
                 terminal_growth = self.perpetual_growth_rate * scenario_data['terminal_multiplier']
-                terminal_value = (last_year_fcf * (1 + terminal_growth / 100)) / (discount_rate / 100 - terminal_growth / 100)
+                terminal_value = (last_year_fcf * (1 + terminal_growth)) / (discount_rate / 100 - terminal_growth)
                 
                 # Calculate present value of projected FCF
                 pv_fcf = []
@@ -852,13 +852,13 @@ class StockValuationScraper:
             if ebitda and ebitda > 0:
                 ev_ebitda_multiple = enterprise_value / ebitda
             
-            if net_income and net_income > 0:
+            if net_income and net_income > 0 and shares_outstanding and shares_outstanding > 0:
                 pe_ratio = (current_price * shares_outstanding) / net_income
             
-            if revenue and revenue > 0:
+            if revenue and revenue > 0 and shares_outstanding and shares_outstanding > 0:
                 ps_ratio = (current_price * shares_outstanding) / revenue
             
-            if book_value and book_value > 0:
+            if book_value and book_value > 0 and shares_outstanding and shares_outstanding > 0:
                 pb_ratio = (current_price * shares_outstanding) / book_value
             
             # Sector-specific median multiples (simplified - in practice, you'd use real sector data)
@@ -1048,7 +1048,7 @@ class StockValuationScraper:
             # Use binary search to find implied growth rate
             low_growth = 0.0
             high_growth = 0.5  # Cap at 50% growth
-            tolerance = 0.001
+            relative_tolerance = 0.001  # 0.1% relative accuracy
             max_iterations = 100
             
             implied_growth = None
@@ -1080,8 +1080,8 @@ class StockValuationScraper:
                 # Total enterprise value
                 calculated_enterprise_value = sum(pv_fcf) + pv_terminal
                 
-                # Check if we're close enough
-                if abs(calculated_enterprise_value - target_enterprise_value) < tolerance:
+                # Check if we're close enough (use relative tolerance)
+                if target_enterprise_value > 0 and abs(calculated_enterprise_value - target_enterprise_value) / target_enterprise_value < relative_tolerance:
                     implied_growth = test_growth
                     break
                 
