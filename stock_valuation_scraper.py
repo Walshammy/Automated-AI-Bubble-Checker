@@ -322,7 +322,7 @@ class StockValuationScraper:
                 'peg_ratio': info.get('pegRatio', None),
                 'price_to_sales': info.get('priceToSalesTrailing12Months', None),
                 'price_to_book': info.get('priceToBook', None),
-                'dividend_yield': info.get('dividendYield', 0) * 100 if info.get('dividendYield') else 0,
+                'dividend_yield': info.get('dividendYield', 0) if info.get('dividendYield') else 0,  # Already in percentage
                 'dividend_rate': info.get('dividendRate', 0),
                 'trailing_eps': info.get('trailingEps', None),
                 'forward_eps': info.get('forwardEps', None),
