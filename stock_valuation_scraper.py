@@ -451,8 +451,18 @@ class StockValuationScraper:
             # Basic Lynch Ratio Calculation with division by zero protection
             if pe_ratio and pe_ratio > 0:
                 lynch_ratio = (eps_growth_rate + dividend_yield) / pe_ratio
+                # Cap extreme Lynch ratios to prevent unrealistic valuations
+                lynch_ratio = min(lynch_ratio, 5.0)  # Cap at 5x (500% upside)
             else:
-                lynch_ratio = 0
+                # If no P/E ratio or negative earnings, use sector-specific default
+                sector_defaults = {
+                    'Technology': 25, 'Healthcare': 20, 'Financial Services': 12,
+                    'Energy': 15, 'Utilities': 18, 'Consumer Staples': 18,
+                    'Real Estate': 15, 'Unknown': 15
+                }
+                default_pe = sector_defaults.get(sector, 15)
+                lynch_ratio = (eps_growth_rate + dividend_yield) / default_pe
+                lynch_ratio = min(lynch_ratio, 3.0)  # More conservative cap for default P/E
             
             # Interpretation using configuration thresholds
             thresholds = VALUATION_CONFIG['lynch_thresholds']
@@ -484,7 +494,21 @@ class StockValuationScraper:
             weighted_growth_rate = ((forward_eps_growth * 2) + historical_eps_growth) / 3
             
             # Advanced Lynch Ratio with weighted growth
-            advanced_lynch_ratio = (weighted_growth_rate + dividend_yield) / pe_ratio
+            if pe_ratio and pe_ratio > 0:
+                advanced_lynch_ratio = (weighted_growth_rate + dividend_yield) / pe_ratio
+                # Cap extreme ratios
+                advanced_lynch_ratio = min(advanced_lynch_ratio, 5.0)
+            else:
+                # Use sector default for advanced calculation too
+                sector_defaults = {
+                    'Technology': 25, 'Healthcare': 20, 'Financial Services': 12,
+                    'Energy': 15, 'Utilities': 18, 'Consumer Staples': 18,
+                    'Real Estate': 15, 'Unknown': 15
+                }
+                default_pe = sector_defaults.get(sector, 15)
+                advanced_lynch_ratio = (weighted_growth_rate + dividend_yield) / default_pe
+                advanced_lynch_ratio = min(advanced_lynch_ratio, 3.0)
+            
             advanced_intrinsic_value = current_price * advanced_lynch_ratio
             advanced_delta = (advanced_intrinsic_value / current_price) - 1
             
@@ -1541,9 +1565,23 @@ class StockValuationScraper:
             
             # Create or update detailed data sheet
             if 'Valuation Data' in wb.sheetnames:
+                # Check if we need to update headers for new columns
                 ws_data = wb['Valuation Data']
-                # Find the next empty row
-                next_row = ws_data.max_row + 1
+                existing_headers = [cell.value for cell in ws_data[1]]
+                new_headers = list(df.columns)
+                
+                # If headers don't match, recreate the sheet with new headers
+                if existing_headers != new_headers:
+                    self.logger.info("Updating Valuation Data sheet with new columns")
+                    wb.remove(ws_data)
+                    ws_data = wb.create_sheet('Valuation Data', 2)
+                    # Add new headers
+                    for col, header in enumerate(new_headers, 1):
+                        ws_data.cell(row=1, column=col, value=header)
+                    next_row = 2
+                else:
+                    # Find the next empty row
+                    next_row = ws_data.max_row + 1
             else:
                 ws_data = wb.create_sheet('Valuation Data', 2)
                 next_row = 1
@@ -1586,7 +1624,7 @@ class StockValuationScraper:
             self.logger.error(f"Error saving valuation dataset: {e}")
 
     def create_valuation_summary_sheet(self, df, wb):
-        """Create comprehensive valuation summary sheet with 3 valuation methods in columns B, C, D"""
+        """Create comprehensive valuation summary sheet with all 9 valuation methods"""
         try:
             ws_summary = wb.create_sheet('My Portfolio', 0)
             
@@ -1609,13 +1647,13 @@ class StockValuationScraper:
             row = 1
             
             # Title
-            ws_summary.merge_cells(f'A{row}:E{row}')
             ws_summary[f'A{row}'] = "Stock Valuation Analysis Dashboard"
-            ws_summary[f'A{row}'].font = Font(bold=True, size=16, color="2F4F4F")
-            ws_summary[f'A{row}'].alignment = Alignment(horizontal='center')
-            row += 2
+            ws_summary[f'A{row}'].font = Font(bold=True, size=16)
+            ws_summary[f'A{row}'].alignment = Alignment(horizontal='center', vertical='center')
+            ws_summary.merge_cells(f'A{row}:I{row}')
+            row += 1
             
-            # Analysis info
+            # Analysis date
             ws_summary[f'A{row}'] = f"Analysis Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             ws_summary[f'A{row}'].font = Font(italic=True, size=10)
             row += 1
@@ -1624,7 +1662,7 @@ class StockValuationScraper:
             ws_summary[f'A{row}'].font = Font(italic=True, size=10)
             row += 2
             
-            # Headers for valuation methods
+            # Headers for all 9 valuation methods
             ws_summary[f'A{row}'] = "Company (Ticker)"
             ws_summary[f'B{row}'] = "Peter Lynch"
             ws_summary[f'C{row}'] = "DCF Valuation"
@@ -1984,10 +2022,10 @@ class StockValuationScraper:
             ws_prospects['A1'].fill = header_fill
             ws_prospects['A1'].border = border
             ws_prospects['A1'].alignment = Alignment(horizontal='center', vertical='center')
-            ws_prospects.merge_cells('A1:E1')
+            ws_prospects.merge_cells('A1:I1')
             
-            # Headers
-            headers = ['Company (Ticker)', 'Peter Lynch', 'DCF Valuation', 'Munger Farm', 'Current Price']
+            # Headers for all 9 valuation methods
+            headers = ['Company (Ticker)', 'Peter Lynch', 'DCF Valuation', 'Munger Farm', 'Enhanced DCF', 'Relative Valuation', 'Reverse DCF', 'EPV/RIM', 'Current Price']
             row = 3
             for col, header in enumerate(headers, 1):
                 cell = ws_prospects.cell(row=row, column=col)
