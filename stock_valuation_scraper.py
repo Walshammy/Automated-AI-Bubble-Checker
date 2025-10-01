@@ -71,7 +71,25 @@ class StockValuationScraper:
         os.makedirs(self.onedrive_dir, exist_ok=True)
 
         # Second storage location - Downloads/Stock Valuation
-        self.downloads_dir = self._get_downloads_directory()
+        # Primary path
+        primary_path = r"C:\Users\james\Downloads\Stock Valuation"
+        if os.path.exists(os.path.dirname(primary_path)):
+            self.downloads_dir = primary_path
+        else:
+            # Fallback: search for james.walsham in Users directory
+            users_dir = r"C:\Users"
+            if os.path.exists(users_dir):
+                for item in os.listdir(users_dir):
+                    if "james.walsham" in item.lower():
+                        fallback_path = os.path.join(users_dir, item, "Downloads", "Stock Valuation")
+                        if os.path.exists(os.path.dirname(fallback_path)):
+                            self.downloads_dir = fallback_path
+                            break
+                else:
+                    self.downloads_dir = None
+            else:
+                self.downloads_dir = None
+        
         if self.downloads_dir:
             os.makedirs(self.downloads_dir, exist_ok=True)
 
@@ -293,6 +311,139 @@ class StockValuationScraper:
         self.discount_rate = VALUATION_CONFIG['discount_rate']
         self.perpetual_growth_rate = VALUATION_CONFIG['perpetual_growth_rate']
         self.projection_years = VALUATION_CONFIG['projection_years']
+
+        # Focus stocks for valuation analysis - Complete NZX + International
+        self.focus_stocks = {
+            # NZX Mega/Large Cap (>$5B) - 13 companies
+            'WBC.NZ': 'Westpac Banking Corporation',
+            'ANZ.NZ': 'ANZ Group Holdings Limited',
+            'FPH.NZ': 'Fisher & Paykel Healthcare Corporation Limited',
+            'MEL.NZ': 'Meridian Energy Limited',
+            'AIA.NZ': 'Auckland International Airport Limited',
+            'IFT.NZ': 'Infratil Limited',
+            'AFI.NZ': 'Australian Foundation Investment Company Limited',
+            'MCY.NZ': 'Mercury NZ Limited',
+            'EBO.NZ': 'EBOS Group Limited',
+            'FCG.NZ': 'Fonterra Co-operative Group Limited',
+            'CEN.NZ': 'Contact Energy Limited',
+            'MFT.NZ': 'Mainfreight Limited',
+            'ATM.NZ': 'The a2 Milk Company Limited',
+            
+            # NZX Mid Cap ($1B - $5B) - 16 companies
+            'POT.NZ': 'Port of Tauranga Limited',
+            'SPK.NZ': 'Spark New Zealand Limited',
+            'VNT.NZ': 'Ventia Services Group Limited',
+            'VCT.NZ': 'Vector Limited',
+            'CNU.NZ': 'Chorus Limited',
+            'FBU.NZ': 'Fletcher Building Limited',
+            'GMT.NZ': 'Goodman Property Trust',
+            'SUM.NZ': 'Summerset Group Holdings Limited',
+            'GNE.NZ': 'Genesis Energy Limited',
+            'RYM.NZ': 'Ryman Healthcare Limited',
+            'FRW.NZ': 'Freightways Group Limited',
+            'MNW.NZ': 'Manawa Energy Limited',
+            'PCT.NZ': 'Precinct Properties NZ Ltd',
+            'AIR.NZ': 'Air New Zealand Limited',
+            'KPG.NZ': 'Kiwi Property Group Limited',
+            'GTK.NZ': 'Gentrack Group Limited',
+            
+            # NZX Small Cap ($300M - $1B) - 29 companies
+            'VHP.NZ': 'Vital Healthcare Property Trust',
+            'PFI.NZ': 'Property For Industry Limited',
+            'BGP.NZ': 'Briscoe Group Limited',
+            'ARG.NZ': 'Argosy Property Limited',
+            'SKL.NZ': 'Skellerup Holdings Limited',
+            'CHI.NZ': 'Channel Infrastructure NZ Limited',
+            'VSL.NZ': 'Vulcan Steel Limited',
+            'VGL.NZ': 'Vista Group International Limited',
+            'HGH.NZ': 'Heartland Group Holdings Limited',
+            'SKC.NZ': 'SkyCity Entertainment Group Limited',
+            'SCL.NZ': 'Scales Corporation Limited',
+            'SPG.NZ': 'Stride Property Group',
+            'NPH.NZ': 'Napier Port Holdings Limited',
+            'TRA.NZ': 'Turners Automotive Group Limited',
+            'WIN.NZ': 'Winton Land Limited',
+            'OCA.NZ': 'Oceania Healthcare Limited',
+            'TWR.NZ': 'Tower Limited',
+            'SAN.NZ': 'Sanford Limited',
+            'HLG.NZ': 'Hallenstein Glasson Holdings Limited',
+            'NZX.NZ': 'NZX Limited',
+            'THL.NZ': 'Tourism Holdings Limited',
+            'IPL.NZ': 'Investore Property Limited',
+            'DGL.NZ': 'Delegat Group Limited',
+            'MCK.NZ': 'Millennium & Copthorne Hotels NZ Limited',
+            'SKT.NZ': 'SKY Network Television Limited',
+            'SKO.NZ': 'Serko Limited',
+            'RBD.NZ': 'Restaurant Brands New Zealand Limited',
+            'SML.NZ': 'Synlait Milk Limited',
+            
+            # NZX Micro Cap ($100M - $300M) - 22 companies
+            'WHS.NZ': 'The Warehouse Group Limited',
+            'AFT.NZ': 'AFT Pharmaceuticals Limited',
+            'SPY.NZ': 'Smartpay Holdings Limited',
+            'ERD.NZ': 'EROAD Limited',
+            'CDI.NZ': 'CDL Investments New Zealand Limited',
+            'TGG.NZ': 'T&G Global Limited',
+            'CMO.NZ': 'The Colonial Motor Company Limited',
+            'NZM.NZ': 'NZME Limited',
+            'MLN.NZ': 'Marlin Global Limited',
+            'KMD.NZ': 'KMD Brands Limited',
+            'SPN.NZ': 'South Port New Zealand Limited',
+            'MHJ.NZ': 'Michael Hill International Limited',
+            'SEK.NZ': 'Seeka Limited',
+            'SCT.NZ': 'Scott Technology Limited',
+            'PGW.NZ': 'PGG Wrightson Limited',
+            'RAK.NZ': 'Rakon Limited',
+            'IKE.NZ': 'ikeGPS Group Limited',
+            'LIC.NZ': 'Livestock Improvement Corporation Limited',
+            'NZL.NZ': 'New Zealand Rural Land Company Limited',
+            'GXH.NZ': 'Green Cross Health Limited',
+            'STU.NZ': 'Steel & Tube Holdings Limited',
+            'NZK.NZ': 'New Zealand King Salmon Investments Limited',
+            
+            # NZX Nano Cap (<$100M) - 35 companies
+            'RAD.NZ': 'Radius Residential Care Limited',
+            'NWF.NZ': 'NZ Windfarms Limited',
+            'PEB.NZ': 'Pacific Edge Limited',
+            'BPG.NZ': 'Black Pearl Group Limited',
+            'ARB.NZ': 'ArborGen Holdings Limited',
+            'APL.NZ': 'Asset Plus Limited',
+            'MFB.NZ': 'My Food Bag Group Limited',
+            'FWL.NZ': 'Foley Wines Limited',
+            'RYM.NZ': 'Ryman Healthcare Limited',
+            'RUA.NZ': 'Rua Bioscience Limited',
+            'ME.NZ': 'Me Today Limited',
+            'RTO.NZ': 'RTO Limited',
+            
+            # International Stocks
+            'BRK-B': 'Berkshire Hathaway Class B',
+            'IWM': 'iShares Russell 2000 ETF',
+            'MSFT': 'Microsoft Corporation',
+            'META': 'Meta Platforms',
+            'AAPL': 'Apple Inc.',
+            'NVDA': 'NVIDIA Corporation',
+            'SNOW': 'Snowflake Inc.',
+            'AMZN': 'Amazon.com Inc.',
+            'LMT': 'Lockheed Martin Corporation',
+            'TSM': 'Taiwan Semiconductor Manufacturing',
+            'INTC': 'Intel Corporation',
+            'GOOGL': 'Alphabet Inc.',
+            'AMD': 'Advanced Micro Devices',
+            'RKLB': 'Rocket Lab USA',
+            'AMAT': 'Applied Materials',
+            'NVO': 'Novo Nordisk',
+            'NOC': 'Northrop Grumman Corporation',
+            'BRK-A': 'Berkshire Hathaway Class A',
+            'SMI.AX': 'Santos Limited'
+        }
+
+        # Market indices for context
+        self.indices = {
+            '^GSPC': 'S&P 500',
+            '^IXIC': 'NASDAQ',
+            '^VIX': 'VIX',
+            '^TNX': '10-Year Treasury'
+        }
 
     def _get_downloads_directory(self):
         """Get the Downloads/Stock Valuation directory with fallback to james.walsham search"""
