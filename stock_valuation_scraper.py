@@ -56,36 +56,72 @@ class ValuationSummary:
     warnings: List[str]
 
 class RobustStockAnalyzer:
-    """Robust stock analyzer focusing on quality and value"""
+    """Robust stock analyzer focusing on quality and value screening"""
     
     def __init__(self):
-        # Focus on high-quality, liquid stocks
+        # Expanded universe for value screening
         self.focus_stocks = {
-            # NZX Quality Stocks
-            'FPH.NZ': 'Fisher & Paykel Healthcare',
-            'MEL.NZ': 'Meridian Energy',
-            'AIA.NZ': 'Auckland Airport',
-            'IFT.NZ': 'Infratil',
-            'MFT.NZ': 'Mainfreight',
-            'ATM.NZ': 'A2 Milk',
-            'POT.NZ': 'Port of Tauranga',
-            'SPK.NZ': 'Spark NZ',
-            'VCT.NZ': 'Vector',
-            'CNU.NZ': 'Chorus',
+            # NZX Stocks - Complete coverage
+            'WBC.NZ': 'Westpac Banking Corporation',
+            'ANZ.NZ': 'ANZ Group Holdings Limited',
+            'FPH.NZ': 'Fisher & Paykel Healthcare Corporation Limited',
+            'MEL.NZ': 'Meridian Energy Limited',
+            'AIA.NZ': 'Auckland International Airport Limited',
+            'IFT.NZ': 'Infratil Limited',
+            'AFI.NZ': 'Australian Foundation Investment Company Limited',
+            'MCY.NZ': 'Mercury NZ Limited',
+            'EBO.NZ': 'EBOS Group Limited',
+            'FCG.NZ': 'Fonterra Co-operative Group Limited',
+            'CEN.NZ': 'Contact Energy Limited',
+            'MFT.NZ': 'Mainfreight Limited',
+            'ATM.NZ': 'The a2 Milk Company Limited',
+            'POT.NZ': 'Port of Tauranga Limited',
+            'SPK.NZ': 'Spark New Zealand Limited',
+            'VNT.NZ': 'Ventia Services Group Limited',
+            'VCT.NZ': 'Vector Limited',
+            'CNU.NZ': 'Chorus Limited',
+            'FBU.NZ': 'Fletcher Building Limited',
+            'GMT.NZ': 'Goodman Property Trust',
+            'SUM.NZ': 'Summerset Group Holdings Limited',
+            'GNE.NZ': 'Genesis Energy Limited',
+            'RYM.NZ': 'Ryman Healthcare Limited',
+            'FRW.NZ': 'Freightways Group Limited',
+            'MNW.NZ': 'Manawa Energy Limited',
+            'PCT.NZ': 'Precinct Properties NZ Ltd',
+            'AIR.NZ': 'Air New Zealand Limited',
+            'KPG.NZ': 'Kiwi Property Group Limited',
+            'GTK.NZ': 'Gentrack Group Limited',
             
-            # International Quality Stocks
-            'BRK-B': 'Berkshire Hathaway',
-            'MSFT': 'Microsoft',
-            'AAPL': 'Apple',
-            'GOOGL': 'Alphabet',
+            # International Value Candidates
+            'BRK-B': 'Berkshire Hathaway Class B',
+            'MSFT': 'Microsoft Corporation',
+            'AAPL': 'Apple Inc.',
+            'GOOGL': 'Alphabet Inc.',
             'JNJ': 'Johnson & Johnson',
-            'PG': 'Procter & Gamble',
-            'KO': 'Coca-Cola',
-            'PEP': 'PepsiCo',
-            'WMT': 'Walmart',
-            'HD': 'Home Depot',
+            'PG': 'Procter & Gamble Company',
+            'KO': 'Coca-Cola Company',
+            'PEP': 'PepsiCo Inc.',
+            'WMT': 'Walmart Inc.',
+            'HD': 'Home Depot Inc.',
+            'JPM': 'JPMorgan Chase & Co.',
+            'BAC': 'Bank of America Corporation',
+            'WFC': 'Wells Fargo & Company',
+            'CVX': 'Chevron Corporation',
+            'XOM': 'Exxon Mobil Corporation',
+            'IBM': 'International Business Machines Corporation',
+            'INTC': 'Intel Corporation',
+            'CSCO': 'Cisco Systems Inc.',
+            'ORCL': 'Oracle Corporation',
+            'ADBE': 'Adobe Inc.',
         }
         
+        # Primary dataset path as specified
+        self.primary_dataset_path = r"C:\Users\james\Downloads\Stock Valuation\stock_valuation_dataset.xlsx"
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(self.primary_dataset_path), exist_ok=True)
+        
+        # Secondary output directory
         self.output_dir = os.path.join(os.getcwd(), "valuation_results")
         os.makedirs(self.output_dir, exist_ok=True)
     
@@ -123,14 +159,23 @@ class RobustStockAnalyzer:
         return float(value)
     
     def get_stock_data(self, ticker: str) -> Dict:
-        """Get essential stock data with robust error handling"""
+        """Get comprehensive stock data with historical context"""
         try:
             stock = yf.Ticker(ticker)
             info = stock.info
             
-            # Extract essential metrics
+            # Get historical data for additional metrics
+            hist_data = None
+            try:
+                # Get 5 years of monthly data for trend analysis
+                hist_data = stock.history(period="5y", interval="1mo")
+            except Exception as e:
+                logger.warning(f"Could not get historical data for {ticker}: {e}")
+            
+            # Extract comprehensive metrics
             data = {
                 'ticker': ticker,
+                'company_name': self.focus_stocks.get(ticker, ticker),
                 'current_price': self.safe_get(info, 'currentPrice'),
                 'market_cap': self.safe_get(info, 'marketCap'),
                 'pe_ratio': self.safe_get(info, 'trailingPE'),
@@ -143,6 +188,7 @@ class RobustStockAnalyzer:
                 'revenue_growth_5y': self.safe_get(info, 'revenueGrowth', 0) * 100,  # Convert to percentage
                 'roe': self.safe_get(info, 'returnOnEquity', 0) * 100,  # Convert to percentage
                 'roa': self.safe_get(info, 'returnOnAssets', 0) * 100,  # Convert to percentage
+                'roic': self.safe_get(info, 'returnOnInvestedCapital', 0) * 100,  # Convert to percentage
                 'debt_to_equity': self.safe_get(info, 'debtToEquity'),
                 'current_ratio': self.safe_get(info, 'currentRatio'),
                 'quick_ratio': self.safe_get(info, 'quickRatio'),
@@ -151,15 +197,45 @@ class RobustStockAnalyzer:
                 'revenue_ttm': self.safe_get(info, 'totalRevenue'),
                 'gross_margin': self.safe_get(info, 'grossMargins', 0) * 100,  # Convert to percentage
                 'operating_margin': self.safe_get(info, 'operatingMargins', 0) * 100,  # Convert to percentage
+                'net_margin': self.safe_get(info, 'profitMargins', 0) * 100,  # Convert to percentage
                 'beta': self.safe_get(info, 'beta', 1.0),
                 'shares_outstanding': self.safe_get(info, 'sharesOutstanding'),
+                'book_value_per_share': self.safe_get(info, 'bookValue'),
+                'cash_per_share': self.safe_get(info, 'totalCashPerShare'),
+                'debt_per_share': self.safe_get(info, 'totalDebtPerShare'),
+                'sector': self.get_sector(ticker).value,
+                'industry': info.get('industry', 'Unknown'),
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             }
+            
+            # Add historical metrics if available
+            if hist_data is not None and not hist_data.empty:
+                # Calculate historical volatility
+                if len(hist_data) > 12:  # At least 1 year of data
+                    returns = hist_data['Close'].pct_change().dropna()
+                    data['volatility_1y'] = returns.std() * np.sqrt(12) * 100  # Annualized volatility
+                    data['max_drawdown_5y'] = self.calculate_max_drawdown(hist_data['Close'])
+                
+                # Price momentum
+                if len(hist_data) >= 12:
+                    data['price_change_1y'] = ((hist_data['Close'].iloc[-1] / hist_data['Close'].iloc[-12]) - 1) * 100
+                if len(hist_data) >= 3:
+                    data['price_change_3m'] = ((hist_data['Close'].iloc[-1] / hist_data['Close'].iloc[-3]) - 1) * 100
             
             return data
             
         except Exception as e:
             logger.error(f"Error getting data for {ticker}: {e}")
             return {}
+    
+    def calculate_max_drawdown(self, prices: pd.Series) -> float:
+        """Calculate maximum drawdown from peak"""
+        try:
+            peak = prices.expanding().max()
+            drawdown = (prices - peak) / peak
+            return drawdown.min() * 100
+        except:
+            return 0.0
     
     def calculate_fcf_yield(self, data: Dict) -> float:
         """Calculate FCF yield"""
