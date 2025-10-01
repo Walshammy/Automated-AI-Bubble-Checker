@@ -1769,6 +1769,13 @@ class StockValuationScraper:
             
             ws_summary[f'A{row}'] = f"Stocks Analyzed: {len(df)}"
             ws_summary[f'A{row}'].font = Font(italic=True, size=10)
+            row += 1
+            
+            # Historical data reference
+            ws_summary[f'A{row}'] = f"Historical Data: See 'stock_valuation_historical.xlsx' for comprehensive daily trends, P/E ratios, and financial history"
+            ws_summary[f'A{row}'].font = Font(italic=True, size=10, color="366092")
+            ws_summary[f'A{row}'].alignment = Alignment(horizontal='left')
+            ws_summary.merge_cells(f'A{row}:I{row}')
             row += 2
             
             # Headers for all 9 valuation methods
@@ -3065,10 +3072,1173 @@ class StockValuationScraper:
         except Exception as e:
             self.logger.error(f"Error creating prospects sheet: {e}")
 
+    @rate_limit(delay=VALUATION_CONFIG['historical_batch_delay'])
+    def collect_comprehensive_historical_data(self, ticker: str) -> Optional[Dict]:
+        """
+        Collect extensive historical data for trend analysis
+        Returns: Dictionary with price history, financial history, valuation metrics over time
+        """
+        try:
+            valid_ticker = self.try_ticker_variations(ticker)
+            if not valid_ticker:
+                self.logger.warning(f"Could not find valid ticker for {ticker}")
+                return None
+            
+            self.logger.info(f"Collecting historical data for {ticker} ({valid_ticker})")
+            stock = yf.Ticker(valid_ticker)
+            
+            # 1. Price History (daily back to 2000 or max available)
+            max_period = VALUATION_CONFIG['max_historical_period']
+            price_history = stock.history(period=max_period)
+            
+            if price_history.empty:
+                self.logger.warning(f"No historical price data for {ticker}")
+                return None
+            
+            # 2. Quarterly Financials (all available)
+            quarterly_financials = stock.quarterly_financials
+            quarterly_balance_sheet = stock.quarterly_balance_sheet
+            quarterly_cashflow = stock.quarterly_cashflow
+            
+            # 3. Annual Financials (all available)
+            annual_financials = stock.financials
+            annual_balance_sheet = stock.balance_sheet
+            annual_cashflow = stock.cashflow
+            
+            # 4. Calculate historical metrics
+            historical_data = {
+                'ticker': ticker,
+                'valid_ticker': valid_ticker,
+                'company_name': self.focus_stocks.get(ticker, ticker),
+                'data_start_date': price_history.index[0].strftime('%Y-%m-%d'),
+                'data_end_date': price_history.index[-1].strftime('%Y-%m-%d'),
+                'total_days': len(price_history),
+                'collection_timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                
+                # Price metrics over time
+                'daily_prices': price_history['Close'].tolist(),
+                'daily_volumes': price_history['Volume'].tolist() if 'Volume' in price_history.columns else [],
+                'daily_highs': price_history['High'].tolist() if 'High' in price_history.columns else [],
+                'daily_lows': price_history['Low'].tolist() if 'Low' in price_history.columns else [],
+                'daily_opens': price_history['Open'].tolist() if 'Open' in price_history.columns else [],
+                'dates': [d.strftime('%Y-%m-%d') for d in price_history.index],
+                
+                # Calculate rolling metrics
+                'rolling_52w_high': price_history['Close'].rolling(252).max().tolist(),
+                'rolling_52w_low': price_history['Close'].rolling(252).min().tolist(),
+                'rolling_200d_ma': price_history['Close'].rolling(200).mean().tolist(),
+                'rolling_50d_ma': price_history['Close'].rolling(50).mean().tolist(),
+                'rolling_20d_ma': price_history['Close'].rolling(20).mean().tolist(),
+                
+                # Volatility metrics
+                'rolling_volatility': price_history['Close'].pct_change().rolling(30).std().tolist(),
+                'rolling_volatility_annualized': (price_history['Close'].pct_change().rolling(30).std() * np.sqrt(252)).tolist(),
+                
+                # Annual returns
+                'annual_returns': self._calculate_annual_returns(price_history),
+                
+                # Quarterly financial data
+                'quarterly_data': self._extract_quarterly_metrics(
+                    quarterly_financials, 
+                    quarterly_balance_sheet, 
+                    quarterly_cashflow
+                ),
+                
+                # Annual financial data
+                'annual_data': self._extract_annual_metrics(
+                    annual_financials, 
+                    annual_balance_sheet, 
+                    annual_cashflow
+                ),
+                
+                # Current metrics for comparison
+                'current_price': price_history['Close'].iloc[-1] if not price_history.empty else None,
+                'current_volume': price_history['Volume'].iloc[-1] if 'Volume' in price_history.columns and not price_history.empty else None,
+                'price_change_1d': price_history['Close'].pct_change().iloc[-1] * 100 if len(price_history) > 1 else None,
+                'price_change_1w': ((price_history['Close'].iloc[-1] / price_history['Close'].iloc[-5]) - 1) * 100 if len(price_history) >= 5 else None,
+                'price_change_1m': ((price_history['Close'].iloc[-1] / price_history['Close'].iloc[-20]) - 1) * 100 if len(price_history) >= 20 else None,
+                'price_change_1y': ((price_history['Close'].iloc[-1] / price_history['Close'].iloc[-252]) - 1) * 100 if len(price_history) >= 252 else None,
+            }
+            
+            # Calculate additional trend metrics
+            historical_data.update(self._calculate_trend_metrics(price_history))
+            
+            # Calculate historical P/E ratios
+            historical_data['historical_pe_ratios'] = self._calculate_historical_pe_ratios(
+                price_history, quarterly_financials, annual_financials, quarterly_balance_sheet, annual_balance_sheet
+            )
+            
+            self.logger.info(f"Successfully collected {len(price_history)} days of data for {ticker}")
+            return historical_data
+            
+        except Exception as e:
+            self.logger.error(f"Error collecting historical data for {ticker}: {e}")
+            return None
+
+    def _calculate_annual_returns(self, price_history: pd.DataFrame) -> Dict:
+        """Calculate annual returns for each calendar year"""
+        annual_returns = {}
+        
+        for year in price_history.index.year.unique():
+            year_data = price_history[price_history.index.year == year]
+            if len(year_data) > 1:
+                start_price = year_data['Close'].iloc[0]
+                end_price = year_data['Close'].iloc[-1]
+                annual_return = ((end_price - start_price) / start_price) * 100
+                annual_returns[int(year)] = round(annual_return, 2)
+        
+        return annual_returns
+
+    def _extract_quarterly_metrics(self, financials, balance_sheet, cashflow) -> List[Dict]:
+        """Extract key metrics from quarterly data"""
+        quarterly_metrics = []
+        
+        if financials is not None and not financials.empty:
+            for date in financials.columns:
+                try:
+                    metrics = {
+                        'date': date.strftime('%Y-%m-%d'),
+                        'quarter': f"Q{date.quarter} {date.year}",
+                        'revenue': financials.loc['Total Revenue', date] if 'Total Revenue' in financials.index else None,
+                        'net_income': financials.loc['Net Income', date] if 'Net Income' in financials.index else None,
+                        'gross_profit': financials.loc['Gross Profit', date] if 'Gross Profit' in financials.index else None,
+                        'operating_income': financials.loc['Operating Income', date] if 'Operating Income' in financials.index else None,
+                        'ebitda': financials.loc['EBITDA', date] if 'EBITDA' in financials.index else None,
+                    }
+                    
+                    # Add balance sheet items
+                    if balance_sheet is not None and date in balance_sheet.columns:
+                        metrics['total_assets'] = balance_sheet.loc['Total Assets', date] if 'Total Assets' in balance_sheet.index else None
+                        metrics['total_liabilities'] = balance_sheet.loc['Total Liabilities Net Minority Interest', date] if 'Total Liabilities Net Minority Interest' in balance_sheet.index else None
+                        metrics['shareholders_equity'] = balance_sheet.loc['Stockholders Equity', date] if 'Stockholders Equity' in balance_sheet.index else None
+                        metrics['cash_and_equivalents'] = balance_sheet.loc['Cash And Cash Equivalents', date] if 'Cash And Cash Equivalents' in balance_sheet.index else None
+                        metrics['total_debt'] = balance_sheet.loc['Total Debt', date] if 'Total Debt' in balance_sheet.index else None
+                    
+                    # Add cashflow items
+                    if cashflow is not None and date in cashflow.columns:
+                        metrics['operating_cashflow'] = cashflow.loc['Operating Cash Flow', date] if 'Operating Cash Flow' in cashflow.index else None
+                        metrics['free_cashflow'] = cashflow.loc['Free Cash Flow', date] if 'Free Cash Flow' in cashflow.index else None
+                        metrics['capital_expenditures'] = cashflow.loc['Capital Expenditures', date] if 'Capital Expenditures' in cashflow.index else None
+                    
+                    # Calculate ratios
+                    if metrics['revenue'] and metrics['net_income']:
+                        metrics['net_margin'] = (metrics['net_income'] / metrics['revenue']) * 100
+                    if metrics['total_assets'] and metrics['net_income']:
+                        metrics['roa'] = (metrics['net_income'] / metrics['total_assets']) * 100
+                    if metrics['shareholders_equity'] and metrics['net_income']:
+                        metrics['roe'] = (metrics['net_income'] / metrics['shareholders_equity']) * 100
+                    
+                    quarterly_metrics.append(metrics)
+                    
+                except Exception as e:
+                    self.logger.debug(f"Error extracting quarterly metrics for {date}: {e}")
+                    continue
+        
+        return quarterly_metrics
+
+    def _extract_annual_metrics(self, financials, balance_sheet, cashflow) -> List[Dict]:
+        """Extract key metrics from annual data"""
+        annual_metrics = []
+        
+        if financials is not None and not financials.empty:
+            for date in financials.columns:
+                try:
+                    metrics = {
+                        'date': date.strftime('%Y-%m-%d'),
+                        'year': date.year,
+                        'revenue': financials.loc['Total Revenue', date] if 'Total Revenue' in financials.index else None,
+                        'net_income': financials.loc['Net Income', date] if 'Net Income' in financials.index else None,
+                        'ebitda': financials.loc['EBITDA', date] if 'EBITDA' in financials.index else None,
+                        'gross_profit': financials.loc['Gross Profit', date] if 'Gross Profit' in financials.index else None,
+                        'operating_income': financials.loc['Operating Income', date] if 'Operating Income' in financials.index else None,
+                    }
+                    
+                    # Add balance sheet items
+                    if balance_sheet is not None and date in balance_sheet.columns:
+                        metrics['total_assets'] = balance_sheet.loc['Total Assets', date] if 'Total Assets' in balance_sheet.index else None
+                        metrics['total_liabilities'] = balance_sheet.loc['Total Liabilities Net Minority Interest', date] if 'Total Liabilities Net Minority Interest' in balance_sheet.index else None
+                        metrics['shareholders_equity'] = balance_sheet.loc['Stockholders Equity', date] if 'Stockholders Equity' in balance_sheet.index else None
+                        metrics['cash_and_equivalents'] = balance_sheet.loc['Cash And Cash Equivalents', date] if 'Cash And Cash Equivalents' in balance_sheet.index else None
+                        metrics['total_debt'] = balance_sheet.loc['Total Debt', date] if 'Total Debt' in balance_sheet.index else None
+                    
+                    # Add cashflow items
+                    if cashflow is not None and date in cashflow.columns:
+                        metrics['operating_cashflow'] = cashflow.loc['Operating Cash Flow', date] if 'Operating Cash Flow' in cashflow.index else None
+                        metrics['free_cashflow'] = cashflow.loc['Free Cash Flow', date] if 'Free Cash Flow' in cashflow.index else None
+                        metrics['capital_expenditures'] = cashflow.loc['Capital Expenditures', date] if 'Capital Expenditures' in cashflow.index else None
+                    
+                    # Calculate growth rates
+                    if len(annual_metrics) > 0:
+                        prev_revenue = annual_metrics[-1].get('revenue')
+                        prev_net_income = annual_metrics[-1].get('net_income')
+                        prev_fcf = annual_metrics[-1].get('free_cashflow')
+                        
+                        if prev_revenue and metrics['revenue']:
+                            metrics['revenue_growth'] = ((metrics['revenue'] - prev_revenue) / prev_revenue) * 100
+                        if prev_net_income and metrics['net_income']:
+                            metrics['net_income_growth'] = ((metrics['net_income'] - prev_net_income) / prev_net_income) * 100
+                        if prev_fcf and metrics['free_cashflow']:
+                            metrics['fcf_growth'] = ((metrics['free_cashflow'] - prev_fcf) / prev_fcf) * 100
+                    
+                    # Calculate ratios
+                    if metrics['revenue'] and metrics['net_income']:
+                        metrics['net_margin'] = (metrics['net_income'] / metrics['revenue']) * 100
+                    if metrics['total_assets'] and metrics['net_income']:
+                        metrics['roa'] = (metrics['net_income'] / metrics['total_assets']) * 100
+                    if metrics['shareholders_equity'] and metrics['net_income']:
+                        metrics['roe'] = (metrics['net_income'] / metrics['shareholders_equity']) * 100
+                    if metrics['total_debt'] and metrics['shareholders_equity']:
+                        metrics['debt_to_equity'] = metrics['total_debt'] / metrics['shareholders_equity']
+                    
+                    annual_metrics.append(metrics)
+                    
+                except Exception as e:
+                    self.logger.debug(f"Error extracting annual metrics for {date}: {e}")
+                    continue
+        
+        return annual_metrics
+
+    def _calculate_trend_metrics(self, price_history: pd.DataFrame) -> Dict:
+        """Calculate additional trend analysis metrics"""
+        try:
+            prices = price_history['Close']
+            
+            # Calculate percentiles
+            current_price = prices.iloc[-1]
+            price_percentile_1y = (prices.tail(252) < current_price).mean() * 100 if len(prices) >= 252 else None
+            price_percentile_5y = (prices.tail(1260) < current_price).mean() * 100 if len(prices) >= 1260 else None
+            price_percentile_all = (prices < current_price).mean() * 100
+            
+            # Calculate Z-scores
+            price_zscore_1y = ((current_price - prices.tail(252).mean()) / prices.tail(252).std()) if len(prices) >= 252 else None
+            price_zscore_5y = ((current_price - prices.tail(1260).mean()) / prices.tail(1260).std()) if len(prices) >= 1260 else None
+            
+            # Calculate CAGR
+            years_available = len(prices) / 252
+            if years_available >= 1:
+                cagr_1y = ((current_price / prices.iloc[-252]) ** (1/1) - 1) * 100 if len(prices) >= 252 else None
+                cagr_5y = ((current_price / prices.iloc[-1260]) ** (1/5) - 1) * 100 if len(prices) >= 1260 else None
+                cagr_all = ((current_price / prices.iloc[0]) ** (1/years_available) - 1) * 100
+            else:
+                cagr_1y = cagr_5y = cagr_all = None
+            
+            # Calculate maximum drawdown
+            rolling_max = prices.expanding().max()
+            drawdown = (prices - rolling_max) / rolling_max
+            max_drawdown = drawdown.min() * 100
+            
+            # Calculate Sharpe ratio (simplified)
+            returns = prices.pct_change().dropna()
+            sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(252) if len(returns) > 1 and returns.std() > 0 else None
+            
+            return {
+                'price_percentile_1y': price_percentile_1y,
+                'price_percentile_5y': price_percentile_5y,
+                'price_percentile_all': price_percentile_all,
+                'price_zscore_1y': price_zscore_1y,
+                'price_zscore_5y': price_zscore_5y,
+                'cagr_1y': cagr_1y,
+                'cagr_5y': cagr_5y,
+                'cagr_all': cagr_all,
+                'max_drawdown': max_drawdown,
+                'sharpe_ratio': sharpe_ratio,
+                'years_of_data': years_available
+            }
+            
+        except Exception as e:
+            self.logger.debug(f"Error calculating trend metrics: {e}")
+            return {}
+
+    def _calculate_historical_pe_ratios(self, price_history: pd.DataFrame, quarterly_financials, annual_financials, quarterly_balance_sheet=None, annual_balance_sheet=None) -> List[Dict]:
+        """Calculate historical P/E ratios by combining price data with earnings data"""
+        try:
+            pe_data = []
+            
+            # Get annual earnings and shares outstanding data
+            annual_data = {}
+            if annual_financials is not None and not annual_financials.empty:
+                for date in annual_financials.columns:
+                    try:
+                        net_income = annual_financials.loc['Net Income', date] if 'Net Income' in annual_financials.index else None
+                        
+                        # Get shares outstanding from balance sheet
+                        shares_outstanding = None
+                        if annual_balance_sheet is not None and date in annual_balance_sheet.columns:
+                            # Try different possible column names for shares outstanding
+                            possible_shares_columns = [
+                                'Ordinary Shares Number',
+                                'Common Stock Shares Outstanding',
+                                'Shares Outstanding',
+                                'Number of Shares',
+                                'Common Shares Outstanding'
+                            ]
+                            
+                            for col in possible_shares_columns:
+                                if col in annual_balance_sheet.index:
+                                    shares_outstanding = annual_balance_sheet.loc[col, date]
+                                    break
+                        
+                        if net_income and net_income > 0 and shares_outstanding and shares_outstanding > 0:
+                            annual_data[date.year] = {
+                                'net_income': net_income,
+                                'shares_outstanding': shares_outstanding,
+                                'eps': net_income / shares_outstanding,
+                                'date': date
+                            }
+                    except Exception as e:
+                        self.logger.debug(f"Error extracting annual data for {date}: {e}")
+                        continue
+            
+            # Get quarterly earnings and shares outstanding data
+            quarterly_data = {}
+            if quarterly_financials is not None and not quarterly_financials.empty:
+                for date in quarterly_financials.columns:
+                    try:
+                        net_income = quarterly_financials.loc['Net Income', date] if 'Net Income' in quarterly_financials.index else None
+                        
+                        # Get shares outstanding from quarterly balance sheet
+                        shares_outstanding = None
+                        if quarterly_balance_sheet is not None and date in quarterly_balance_sheet.columns:
+                            # Try different possible column names for shares outstanding
+                            possible_shares_columns = [
+                                'Ordinary Shares Number',
+                                'Common Stock Shares Outstanding',
+                                'Shares Outstanding',
+                                'Number of Shares',
+                                'Common Shares Outstanding'
+                            ]
+                            
+                            for col in possible_shares_columns:
+                                if col in quarterly_balance_sheet.index:
+                                    shares_outstanding = quarterly_balance_sheet.loc[col, date]
+                                    break
+                        
+                        if net_income and net_income > 0 and shares_outstanding and shares_outstanding > 0:
+                            # Annualize quarterly earnings
+                            annualized_net_income = net_income * 4
+                            quarterly_data[date] = {
+                                'net_income': annualized_net_income,
+                                'shares_outstanding': shares_outstanding,
+                                'eps': annualized_net_income / shares_outstanding,
+                                'date': date
+                            }
+                    except Exception as e:
+                        self.logger.debug(f"Error extracting quarterly data for {date}: {e}")
+                        continue
+            
+            # Calculate P/E ratios for each trading day
+            for date, row in price_history.iterrows():
+                current_price = row['Close']
+                
+                # Try to find the most recent earnings data
+                earnings_data = None
+                
+                # First, try quarterly data (more recent)
+                for q_date in sorted(quarterly_data.keys(), reverse=True):
+                    if q_date <= date:
+                        earnings_data = quarterly_data[q_date]
+                        break
+                
+                # If no quarterly data, try annual data
+                if earnings_data is None:
+                    for year in sorted(annual_data.keys(), reverse=True):
+                        if year <= date.year:
+                            earnings_data = annual_data[year]
+                            break
+                
+                # Calculate P/E ratio if we have earnings data
+                if earnings_data and earnings_data['eps'] > 0:
+                    pe_ratio = current_price / earnings_data['eps']
+                    
+                    pe_data.append({
+                        'date': date.strftime('%Y-%m-%d'),
+                        'price': current_price,
+                        'earnings_per_share': earnings_data['eps'],
+                        'pe_ratio': pe_ratio,
+                        'earnings_date': earnings_data['date'].strftime('%Y-%m-%d'),
+                        'earnings_type': 'quarterly' if earnings_data['date'] in quarterly_data else 'annual',
+                        'shares_outstanding': earnings_data['shares_outstanding'],
+                        'net_income': earnings_data['net_income']
+                    })
+            
+            # Calculate P/E statistics
+            if pe_data:
+                pe_ratios = [item['pe_ratio'] for item in pe_data]
+                
+                # Add summary statistics
+                pe_summary = {
+                    'current_pe': pe_data[-1]['pe_ratio'] if pe_data else None,
+                    'pe_mean': np.mean(pe_ratios),
+                    'pe_median': np.median(pe_ratios),
+                    'pe_std': np.std(pe_ratios),
+                    'pe_min': np.min(pe_ratios),
+                    'pe_max': np.max(pe_ratios),
+                    'pe_percentile_25': np.percentile(pe_ratios, 25),
+                    'pe_percentile_75': np.percentile(pe_ratios, 75),
+                    'pe_percentile_90': np.percentile(pe_ratios, 90),
+                    'pe_percentile_95': np.percentile(pe_ratios, 95),
+                    'total_pe_data_points': len(pe_data)
+                }
+                
+                # Calculate current P/E percentile
+                if pe_summary['current_pe']:
+                    pe_summary['current_pe_percentile'] = (np.array(pe_ratios) < pe_summary['current_pe']).mean() * 100
+                
+                # Add valuation assessment
+                if pe_summary['current_pe']:
+                    if pe_summary['current_pe'] < pe_summary['pe_percentile_25']:
+                        pe_summary['valuation_assessment'] = 'Very Undervalued'
+                    elif pe_summary['current_pe'] < pe_summary['pe_percentile_50']:
+                        pe_summary['valuation_assessment'] = 'Undervalued'
+                    elif pe_summary['current_pe'] < pe_summary['pe_percentile_75']:
+                        pe_summary['valuation_assessment'] = 'Fairly Valued'
+                    elif pe_summary['current_pe'] < pe_summary['pe_percentile_90']:
+                        pe_summary['valuation_assessment'] = 'Overvalued'
+                    else:
+                        pe_summary['valuation_assessment'] = 'Very Overvalued'
+                
+                # Add summary to the data
+                pe_data.append({
+                    'date': 'SUMMARY',
+                    'price': None,
+                    'earnings_per_share': None,
+                    'pe_ratio': None,
+                    'earnings_date': None,
+                    'earnings_type': 'SUMMARY',
+                    'shares_outstanding': None,
+                    'net_income': None,
+                    'summary_stats': pe_summary
+                })
+            
+            self.logger.info(f"Calculated {len(pe_data)} P/E ratio data points")
+            return pe_data
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating historical P/E ratios: {e}")
+            return []
+
+    def _load_historical_progress(self) -> Dict:
+        """Load historical data collection progress"""
+        try:
+            if os.path.exists(self.historical_progress_file):
+                with open(self.historical_progress_file, 'r') as f:
+                    return json.load(f)
+            return {'completed': [], 'failed': [], 'last_updated': None}
+        except Exception as e:
+            self.logger.error(f"Error loading historical progress: {e}")
+            return {'completed': [], 'failed': [], 'last_updated': None}
+
+    def _save_historical_progress(self, progress: Dict):
+        """Save historical data collection progress"""
+        try:
+            progress['last_updated'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            with open(self.historical_progress_file, 'w') as f:
+                json.dump(progress, f, indent=2)
+        except Exception as e:
+            self.logger.error(f"Error saving historical progress: {e}")
+
+    def _append_to_historical_file(self, historical_data: Dict):
+        """Append historical data to the historical Excel file with maximum daily granularity"""
+        try:
+            # Create comprehensive daily trends data
+            trends_data = []
+            
+            # Create a comprehensive daily dataset
+            for i, (date, price, volume, high, low, open_price) in enumerate(zip(
+                historical_data['dates'],
+                historical_data['daily_prices'],
+                historical_data['daily_volumes'],
+                historical_data['daily_highs'],
+                historical_data['daily_lows'],
+                historical_data['daily_opens']
+            )):
+                # Base daily data
+                daily_row = {
+                    'Date': date,
+                    'Ticker': historical_data['ticker'],
+                    'Company_Name': historical_data['company_name'],
+                    'Price': price,
+                    'Volume': volume,
+                    'High': high,
+                    'Low': low,
+                    'Open': open_price,
+                    'Data_Type': 'Daily_Comprehensive'
+                }
+                
+                # Add rolling metrics for this day
+                if i < len(historical_data['rolling_52w_high']):
+                    daily_row['52W_High'] = historical_data['rolling_52w_high'][i]
+                    daily_row['52W_Low'] = historical_data['rolling_52w_low'][i]
+                if i < len(historical_data['rolling_200d_ma']):
+                    daily_row['200D_MA'] = historical_data['rolling_200d_ma'][i]
+                if i < len(historical_data['rolling_50d_ma']):
+                    daily_row['50D_MA'] = historical_data['rolling_50d_ma'][i]
+                if i < len(historical_data['rolling_20d_ma']):
+                    daily_row['20D_MA'] = historical_data['rolling_20d_ma'][i]
+                if i < len(historical_data['rolling_volatility']):
+                    daily_row['Volatility_30D'] = historical_data['rolling_volatility'][i]
+                if i < len(historical_data['rolling_volatility_annualized']):
+                    daily_row['Volatility_Annualized'] = historical_data['rolling_volatility_annualized'][i]
+                
+                # Add price change metrics for the most recent day
+                if i == len(historical_data['dates']) - 1:
+                    daily_row['Price_Change_1D'] = historical_data['price_change_1d']
+                    daily_row['Price_Change_1W'] = historical_data['price_change_1w']
+                    daily_row['Price_Change_1M'] = historical_data['price_change_1m']
+                    daily_row['Price_Change_1Y'] = historical_data['price_change_1y']
+                
+                # Add P/E ratio data for this day if available
+                pe_ratio_for_date = None
+                eps_for_date = None
+                earnings_date_for_date = None
+                earnings_type_for_date = None
+                shares_outstanding_for_date = None
+                net_income_for_date = None
+                
+                # Find P/E data for this specific date
+                for pe_data in historical_data['historical_pe_ratios']:
+                    if pe_data['date'] == date:
+                        pe_ratio_for_date = pe_data['pe_ratio']
+                        eps_for_date = pe_data['earnings_per_share']
+                        earnings_date_for_date = pe_data['earnings_date']
+                        earnings_type_for_date = pe_data['earnings_type']
+                        shares_outstanding_for_date = pe_data['shares_outstanding']
+                        net_income_for_date = pe_data['net_income']
+                        break
+                
+                daily_row['PE_Ratio'] = pe_ratio_for_date
+                daily_row['EPS'] = eps_for_date
+                daily_row['Earnings_Date'] = earnings_date_for_date
+                daily_row['Earnings_Type'] = earnings_type_for_date
+                daily_row['Shares_Outstanding'] = shares_outstanding_for_date
+                daily_row['Net_Income'] = net_income_for_date
+                
+                # Add trend metrics
+                daily_row['Price_Percentile_1Y'] = historical_data.get('price_percentile_1y')
+                daily_row['Price_Percentile_5Y'] = historical_data.get('price_percentile_5y')
+                daily_row['Price_Percentile_All'] = historical_data.get('price_percentile_all')
+                daily_row['Price_ZScore_1Y'] = historical_data.get('price_zscore_1y')
+                daily_row['Price_ZScore_5Y'] = historical_data.get('price_zscore_5y')
+                daily_row['CAGR_1Y'] = historical_data.get('cagr_1y')
+                daily_row['CAGR_5Y'] = historical_data.get('cagr_5y')
+                daily_row['CAGR_All'] = historical_data.get('cagr_all')
+                daily_row['Max_Drawdown'] = historical_data.get('max_drawdown')
+                daily_row['Sharpe_Ratio'] = historical_data.get('sharpe_ratio')
+                daily_row['Years_of_Data'] = historical_data.get('years_of_data')
+                
+                trends_data.append(daily_row)
+            
+            # Add quarterly financial data as separate entries
+            for q_data in historical_data['quarterly_data']:
+                trends_data.append({
+                    'Date': q_data['date'],
+                    'Ticker': historical_data['ticker'],
+                    'Company_Name': historical_data['company_name'],
+                    'Revenue': q_data['revenue'],
+                    'Net_Income': q_data['net_income'],
+                    'Gross_Profit': q_data['gross_profit'],
+                    'Operating_Income': q_data['operating_income'],
+                    'EBITDA': q_data['ebitda'],
+                    'Total_Assets': q_data['total_assets'],
+                    'Total_Liabilities': q_data['total_liabilities'],
+                    'Shareholders_Equity': q_data['shareholders_equity'],
+                    'Operating_Cashflow': q_data['operating_cashflow'],
+                    'Free_Cashflow': q_data['free_cashflow'],
+                    'Net_Margin': q_data.get('net_margin'),
+                    'ROA': q_data.get('roa'),
+                    'ROE': q_data.get('roe'),
+                    'Data_Type': 'Quarterly_Financial'
+                })
+            
+            # Add annual financial data as separate entries
+            for a_data in historical_data['annual_data']:
+                trends_data.append({
+                    'Date': a_data['date'],
+                    'Ticker': historical_data['ticker'],
+                    'Company_Name': historical_data['company_name'],
+                    'Revenue': a_data['revenue'],
+                    'Net_Income': a_data['net_income'],
+                    'EBITDA': a_data['ebitda'],
+                    'Total_Assets': a_data['total_assets'],
+                    'Total_Liabilities': a_data['total_liabilities'],
+                    'Shareholders_Equity': a_data['shareholders_equity'],
+                    'Operating_Cashflow': a_data['operating_cashflow'],
+                    'Free_Cashflow': a_data['free_cashflow'],
+                    'Revenue_Growth': a_data.get('revenue_growth'),
+                    'Net_Income_Growth': a_data.get('net_income_growth'),
+                    'FCF_Growth': a_data.get('fcf_growth'),
+                    'Net_Margin': a_data.get('net_margin'),
+                    'ROA': a_data.get('roa'),
+                    'ROE': a_data.get('roe'),
+                    'Debt_to_Equity': a_data.get('debt_to_equity'),
+                    'Data_Type': 'Annual_Financial'
+                })
+            
+            # Add P/E summary statistics as a separate entry
+            pe_summary_data = None
+            for pe_data in historical_data['historical_pe_ratios']:
+                if pe_data['date'] == 'SUMMARY':
+                    pe_summary_data = pe_data['summary_stats']
+                    break
+            
+            if pe_summary_data:
+                trends_data.append({
+                    'Date': historical_data['data_end_date'],
+                    'Ticker': historical_data['ticker'],
+                    'Company_Name': historical_data['company_name'],
+                    'Current_PE': pe_summary_data['current_pe'],
+                    'PE_Mean': pe_summary_data['pe_mean'],
+                    'PE_Median': pe_summary_data['pe_median'],
+                    'PE_Std': pe_summary_data['pe_std'],
+                    'PE_Min': pe_summary_data['pe_min'],
+                    'PE_Max': pe_summary_data['pe_max'],
+                    'PE_Percentile_25': pe_summary_data['pe_percentile_25'],
+                    'PE_Percentile_75': pe_summary_data['pe_percentile_75'],
+                    'PE_Percentile_90': pe_summary_data['pe_percentile_90'],
+                    'PE_Percentile_95': pe_summary_data['pe_percentile_95'],
+                    'PE_Percentile_Current': pe_summary_data['current_pe_percentile'],
+                    'Valuation_Assessment': pe_summary_data['valuation_assessment'],
+                    'Total_PE_Data_Points': pe_summary_data['total_pe_data_points'],
+                    'Data_Type': 'PE_Summary'
+                })
+            
+            # Convert to DataFrame and append to Excel
+            df_trends = pd.DataFrame(trends_data)
+            
+            # Load existing file or create new one
+            if os.path.exists(self.historical_file):
+                with pd.ExcelWriter(self.historical_file, mode='a', engine='openpyxl', if_sheet_exists='overlay') as writer:
+                    df_trends.to_excel(writer, sheet_name='Historical_Trends', index=False, header=False, startrow=writer.sheets['Historical_Trends'].max_row)
+            else:
+                # Create new file with proper formatting
+                self._create_formatted_historical_file(df_trends)
+            
+            self.logger.info(f"Appended {len(trends_data)} comprehensive records to historical file for {historical_data['ticker']}")
+            self.logger.info(f"Daily records: {len(historical_data['dates'])}, Quarterly: {len(historical_data['quarterly_data'])}, Annual: {len(historical_data['annual_data'])}")
+            
+        except Exception as e:
+            self.logger.error(f"Error appending to historical file: {e}")
+
+    def _create_formatted_historical_file(self, df_trends: pd.DataFrame):
+        """Create a new historical file with proper formatting and structure"""
+        try:
+            wb = Workbook()
+            wb.remove(wb.active)  # Remove default sheet
+            
+            # Create Historical Trends sheet
+            ws_trends = wb.create_sheet('Historical_Trends', 0)
+            
+            # Add headers with formatting
+            headers = list(df_trends.columns)
+            for col, header in enumerate(headers, 1):
+                cell = ws_trends.cell(row=1, column=col, value=header)
+                cell.font = Font(bold=True, size=11)
+                cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+                cell.font = Font(bold=True, color="FFFFFF", size=11)
+                cell.alignment = Alignment(horizontal='center', vertical='center')
+                cell.border = Border(
+                    left=Side(style='thin'),
+                    right=Side(style='thin'),
+                    top=Side(style='thin'),
+                    bottom=Side(style='thin')
+                )
+            
+            # Add data
+            for row_idx, (_, row_data) in enumerate(df_trends.iterrows(), 2):
+                for col_idx, value in enumerate(row_data, 1):
+                    cell = ws_trends.cell(row=row_idx, column=col_idx, value=value)
+                    cell.border = Border(
+                        left=Side(style='thin'),
+                        right=Side(style='thin'),
+                        top=Side(style='thin'),
+                        bottom=Side(style='thin')
+                    )
+                    
+                    # Format based on data type
+                    if col_idx == 1:  # Date column
+                        cell.alignment = Alignment(horizontal='center')
+                    elif isinstance(value, (int, float)) and value is not None:
+                        if 'PE' in headers[col_idx-1] or 'Ratio' in headers[col_idx-1]:
+                            cell.number_format = '0.00'
+                        elif 'Price' in headers[col_idx-1] or 'EPS' in headers[col_idx-1]:
+                            cell.number_format = '$#,##0.00'
+                        elif 'Volume' in headers[col_idx-1] or 'Shares' in headers[col_idx-1]:
+                            cell.number_format = '#,##0'
+                        elif 'Percent' in headers[col_idx-1] or 'Growth' in headers[col_idx-1]:
+                            cell.number_format = '0.00%'
+                        else:
+                            cell.number_format = '#,##0.00'
+            
+            # Set column widths
+            column_widths = {
+                'A': 12,  # Date
+                'B': 10,  # Ticker
+                'C': 35,  # Company Name
+                'D': 12,  # Price
+                'E': 15,  # Volume
+                'F': 12,  # High
+                'G': 12,  # Low
+                'H': 12,  # Open
+                'I': 12,  # PE Ratio
+                'J': 12,  # EPS
+                'K': 15,  # Data Type
+            }
+            
+            for col, width in column_widths.items():
+                ws_trends.column_dimensions[col].width = width
+            
+            # Create Historical Summary sheet
+            ws_summary = wb.create_sheet('Historical_Summary', 1)
+            self._create_historical_summary_sheet(ws_summary)
+            
+            # Create Historical Analysis sheet
+            ws_analysis = wb.create_sheet('Historical_Analysis', 2)
+            self._create_historical_analysis_sheet(ws_analysis)
+            
+            # Save the workbook
+            wb.save(self.historical_file)
+            self.logger.info(f"Created formatted historical file: {self.historical_file}")
+            
+        except Exception as e:
+            self.logger.error(f"Error creating formatted historical file: {e}")
+
+    def _create_historical_summary_sheet(self, ws):
+        """Create a summary sheet for historical data overview"""
+        try:
+            # Title
+            ws['A1'] = "Historical Data Collection Summary"
+            ws['A1'].font = Font(bold=True, size=16, color="366092")
+            ws['A1'].alignment = Alignment(horizontal='center')
+            ws.merge_cells('A1:F1')
+            
+            # Collection info
+            ws['A3'] = "Collection Date:"
+            ws['B3'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            ws['A3'].font = Font(bold=True)
+            
+            ws['A4'] = "Total Stocks Tracked:"
+            ws['B4'] = len(self.focus_stocks)
+            ws['A4'].font = Font(bold=True)
+            
+            ws['A5'] = "Data Period:"
+            ws['B5'] = f"Back to {VALUATION_CONFIG['historical_start_year']}"
+            ws['A5'].font = Font(bold=True)
+            
+            ws['A6'] = "Max Historical Period:"
+            ws['B6'] = VALUATION_CONFIG['max_historical_period']
+            ws['A6'].font = Font(bold=True)
+            
+            # Data structure explanation
+            ws['A8'] = "Data Structure:"
+            ws['A8'].font = Font(bold=True, size=12)
+            
+            data_types = [
+                ("Daily_Comprehensive", "Daily price data with rolling metrics, P/E ratios, and trend indicators"),
+                ("Quarterly_Financial", "Quarterly financial statements (revenue, earnings, balance sheet)"),
+                ("Annual_Financial", "Annual financial statements with growth rates"),
+                ("PE_Summary", "P/E ratio statistics and valuation assessments")
+            ]
+            
+            row = 9
+            for data_type, description in data_types:
+                ws[f'A{row}'] = data_type
+                ws[f'B{row}'] = description
+                ws[f'A{row}'].font = Font(bold=True)
+                row += 1
+            
+            # Key metrics explanation
+            ws['A14'] = "Key Metrics Tracked:"
+            ws['A14'].font = Font(bold=True, size=12)
+            
+            metrics = [
+                ("Price Data", "Daily OHLCV, rolling averages, volatility"),
+                ("P/E Ratios", "Historical P/E with percentiles and valuation assessment"),
+                ("Financial Data", "Revenue, earnings, cash flow, balance sheet items"),
+                ("Trend Analysis", "Price percentiles, Z-scores, CAGR, drawdowns"),
+                ("Moving Averages", "20-day, 50-day, 200-day moving averages"),
+                ("Volatility", "30-day rolling volatility (daily and annualized)")
+            ]
+            
+            row = 15
+            for metric, description in metrics:
+                ws[f'A{row}'] = metric
+                ws[f'B{row}'] = description
+                ws[f'A{row}'].font = Font(bold=True)
+                row += 1
+            
+            # Usage instructions
+            ws['A22'] = "Usage Instructions:"
+            ws['A22'].font = Font(bold=True, size=12)
+            
+            instructions = [
+                "1. Filter by Ticker to analyze specific stocks",
+                "2. Filter by Data_Type to focus on specific data categories",
+                "3. Sort by Date to see chronological progression",
+                "4. Use P/E percentiles to identify valuation opportunities",
+                "5. Compare current metrics to historical averages"
+            ]
+            
+            row = 23
+            for instruction in instructions:
+                ws[f'A{row}'] = instruction
+                row += 1
+            
+            # Set column widths
+            ws.column_dimensions['A'].width = 25
+            ws.column_dimensions['B'].width = 50
+            
+        except Exception as e:
+            self.logger.error(f"Error creating historical summary sheet: {e}")
+
+    def _create_historical_analysis_sheet(self, ws):
+        """Create an analysis sheet with sample queries and insights"""
+        try:
+            # Title
+            ws['A1'] = "Historical Data Analysis Guide"
+            ws['A1'].font = Font(bold=True, size=16, color="366092")
+            ws['A1'].alignment = Alignment(horizontal='center')
+            ws.merge_cells('A1:F1')
+            
+            # Sample analysis queries
+            ws['A3'] = "Sample Analysis Queries:"
+            ws['A3'].font = Font(bold=True, size=12)
+            
+            queries = [
+                ("Find undervalued stocks", "Filter PE_Percentile_Current < 25 AND Valuation_Assessment = 'Very Undervalued'"),
+                ("Identify high volatility stocks", "Filter Volatility_Annualized > 30 AND Data_Type = 'Daily_Comprehensive'"),
+                ("Find stocks above 200-day MA", "Filter Price > 200D_MA AND Data_Type = 'Daily_Comprehensive'"),
+                ("Identify growth stocks", "Filter Revenue_Growth > 10 AND Data_Type = 'Annual_Financial'"),
+                ("Find dividend opportunities", "Filter PE_Ratio < 15 AND Price_Percentile_All < 50"),
+                ("Identify momentum stocks", "Filter Price_Change_1Y > 20 AND above_200d_ma = TRUE")
+            ]
+            
+            row = 4
+            for query_name, query_filter in queries:
+                ws[f'A{row}'] = query_name
+                ws[f'B{row}'] = query_filter
+                ws[f'A{row}'].font = Font(bold=True)
+                ws[f'B{row}'].font = Font(size=10)
+                row += 1
+            
+            # Key insights to look for
+            ws['A12'] = "Key Insights to Look For:"
+            ws['A12'].font = Font(bold=True, size=12)
+            
+            insights = [
+                ("Mean Reversion", "Stocks with P/E ratios in bottom 25th percentile often outperform"),
+                ("Momentum", "Stocks above 200-day MA tend to continue upward trends"),
+                ("Volatility Clusters", "High volatility periods often precede major moves"),
+                ("Earnings Quality", "Consistent revenue growth with improving margins"),
+                ("Valuation Cycles", "P/E ratios tend to revert to historical means over time"),
+                ("Seasonal Patterns", "Some stocks show consistent seasonal performance")
+            ]
+            
+            row = 13
+            for insight_name, insight_description in insights:
+                ws[f'A{row}'] = insight_name
+                ws[f'B{row}'] = insight_description
+                ws[f'A{row}'].font = Font(bold=True)
+                row += 1
+            
+            # Performance benchmarks
+            ws['A21'] = "Performance Benchmarks:"
+            ws['A21'].font = Font(bold=True, size=12)
+            
+            benchmarks = [
+                ("Excellent CAGR", "> 15% annually over 5+ years"),
+                ("Good CAGR", "10-15% annually over 5+ years"),
+                ("Acceptable CAGR", "5-10% annually over 5+ years"),
+                ("Low Volatility", "< 20% annualized volatility"),
+                ("Moderate Volatility", "20-30% annualized volatility"),
+                ("High Volatility", "> 30% annualized volatility"),
+                ("Conservative P/E", "< 15"),
+                ("Moderate P/E", "15-25"),
+                ("Growth P/E", "25-40"),
+                ("Speculative P/E", "> 40")
+            ]
+            
+            row = 22
+            for benchmark_name, benchmark_value in benchmarks:
+                ws[f'A{row}'] = benchmark_name
+                ws[f'B{row}'] = benchmark_value
+                ws[f'A{row}'].font = Font(bold=True)
+                row += 1
+            
+            # Set column widths
+            ws.column_dimensions['A'].width = 25
+            ws.column_dimensions['B'].width = 50
+            
+        except Exception as e:
+            self.logger.error(f"Error creating historical analysis sheet: {e}")
+
+    def run_historical_collection(self):
+        """Collect historical data progressively with checkpointing"""
+        self.logger.info("Starting comprehensive historical data collection")
+        
+        # Load progress tracker
+        progress = self._load_historical_progress()
+        
+        # Get stocks that haven't been completed
+        remaining_stocks = {k: v for k, v in self.focus_stocks.items() if k not in progress.get('completed', [])}
+        
+        if not remaining_stocks:
+            self.logger.info("All stocks have been processed for historical data collection")
+            return
+        
+        self.logger.info(f"Processing {len(remaining_stocks)} remaining stocks for historical data collection")
+        
+        # Process stocks in batches
+        batch_size = VALUATION_CONFIG['historical_batch_size']
+        checkpoint_interval = VALUATION_CONFIG['historical_checkpoint_interval']
+        
+        stock_items = list(remaining_stocks.items())
+        
+        for i in tqdm(range(0, len(stock_items), batch_size), desc="Processing historical data batches"):
+            batch = stock_items[i:i + batch_size]
+            
+            for ticker, company_name in batch:
+                try:
+                    self.logger.info(f"Collecting historical data for {ticker} ({company_name})")
+                    
+                    historical_data = self.collect_comprehensive_historical_data(ticker)
+                    
+                    if historical_data:
+                        # Save to historical file
+                        self._append_to_historical_file(historical_data)
+                        
+                        # Update progress
+                        progress['completed'].append(ticker)
+                        self.logger.info(f"Completed {ticker} - {len(progress['completed'])}/{len(self.focus_stocks)} total")
+                    else:
+                        progress['failed'].append(ticker)
+                        self.logger.warning(f"Failed to collect data for {ticker}")
+                    
+                    # Save progress every checkpoint_interval stocks
+                    if len(progress['completed']) % checkpoint_interval == 0:
+                        self._save_historical_progress(progress)
+                        self.logger.info(f"Progress checkpoint saved: {len(progress['completed'])} completed")
+                
+                except Exception as e:
+                    self.logger.error(f"Error processing {ticker}: {e}")
+                    progress['failed'].append(ticker)
+                    continue
+            
+            # Rate limiting between batches
+            if i + batch_size < len(stock_items):
+                self.logger.info(f"Waiting {VALUATION_CONFIG['historical_batch_delay']} seconds before next batch...")
+                time.sleep(VALUATION_CONFIG['historical_batch_delay'])
+        
+        # Final progress save
+        self._save_historical_progress(progress)
+        
+        self.logger.info(f"Historical data collection completed!")
+        self.logger.info(f"Successfully processed: {len(progress['completed'])} stocks")
+        self.logger.info(f"Failed: {len(progress['failed'])} stocks")
+        
+        if progress['failed']:
+            self.logger.warning(f"Failed stocks: {progress['failed']}")
+
+    def analyze_historical_trends(self, ticker: str = None) -> Dict:
+        """Analyze historical trends for a specific ticker or all tickers"""
+        try:
+            if not os.path.exists(self.historical_file):
+                self.logger.error("Historical file not found. Run historical collection first.")
+                return {}
+            
+            # Load historical data
+            df_historical = pd.read_excel(self.historical_file, sheet_name='Historical_Trends')
+            
+            if ticker:
+                df_ticker = df_historical[df_historical['Ticker'] == ticker]
+                if df_ticker.empty:
+                    self.logger.warning(f"No historical data found for {ticker}")
+                    return {}
+                
+                return self._analyze_single_ticker_trends(df_ticker, ticker)
+            else:
+                # Analyze all tickers
+                analysis_results = {}
+                for ticker in df_historical['Ticker'].unique():
+                    df_ticker = df_historical[df_historical['Ticker'] == ticker]
+                    analysis_results[ticker] = self._analyze_single_ticker_trends(df_ticker, ticker)
+                
+                return analysis_results
+                
+        except Exception as e:
+            self.logger.error(f"Error analyzing historical trends: {e}")
+            return {}
+
+    def _analyze_single_ticker_trends(self, df_ticker: pd.DataFrame, ticker: str) -> Dict:
+        """Analyze trends for a single ticker"""
+        try:
+            # Get price data
+            price_data = df_ticker[df_ticker['Data_Type'] == 'Daily_Price'].copy()
+            price_data['Date'] = pd.to_datetime(price_data['Date'])
+            price_data = price_data.sort_values('Date')
+            
+            if price_data.empty:
+                return {'error': 'No price data available'}
+            
+            current_price = price_data['Price'].iloc[-1]
+            
+            # Calculate trend metrics
+            analysis = {
+                'ticker': ticker,
+                'current_price': current_price,
+                'data_start_date': price_data['Date'].iloc[0].strftime('%Y-%m-%d'),
+                'data_end_date': price_data['Date'].iloc[-1].strftime('%Y-%m-%d'),
+                'total_trading_days': len(price_data),
+                
+                # Price analysis
+                'price_percentile_1y': self._calculate_percentile(price_data['Price'].tail(252), current_price),
+                'price_percentile_5y': self._calculate_percentile(price_data['Price'].tail(1260), current_price),
+                'price_percentile_all': self._calculate_percentile(price_data['Price'], current_price),
+                
+                # Performance metrics
+                'total_return': ((current_price / price_data['Price'].iloc[0]) - 1) * 100,
+                'annualized_return': self._calculate_cagr(price_data['Price'].iloc[0], current_price, len(price_data) / 252),
+                'max_drawdown': self._calculate_max_drawdown(price_data['Price']),
+                'volatility': price_data['Price'].pct_change().std() * np.sqrt(252) * 100,
+                
+                # Trend indicators
+                'above_200d_ma': current_price > price_data['Price'].rolling(200).mean().iloc[-1],
+                'above_50d_ma': current_price > price_data['Price'].rolling(50).mean().iloc[-1],
+                'ma_trend': self._calculate_ma_trend(price_data['Price']),
+            }
+            
+            # Add P/E analysis if available
+            pe_data = df_ticker[df_ticker['Data_Type'] == 'PE_Ratio'].copy()
+            if not pe_data.empty:
+                pe_data['Date'] = pd.to_datetime(pe_data['Date'])
+                pe_data = pe_data.sort_values('Date')
+                
+                current_pe = pe_data['PE_Ratio'].iloc[-1]
+                analysis.update({
+                    'current_pe_ratio': current_pe,
+                    'pe_percentile_1y': self._calculate_percentile(pe_data['PE_Ratio'].tail(252), current_pe),
+                    'pe_percentile_5y': self._calculate_percentile(pe_data['PE_Ratio'].tail(1260), current_pe),
+                    'pe_percentile_all': self._calculate_percentile(pe_data['PE_Ratio'], current_pe),
+                    'pe_mean': pe_data['PE_Ratio'].mean(),
+                    'pe_median': pe_data['PE_Ratio'].median(),
+                    'pe_std': pe_data['PE_Ratio'].std(),
+                    'pe_min': pe_data['PE_Ratio'].min(),
+                    'pe_max': pe_data['PE_Ratio'].max(),
+                    'pe_trend': self._calculate_pe_trend(pe_data['PE_Ratio'])
+                })
+            
+            return analysis
+            
+        except Exception as e:
+            self.logger.error(f"Error analyzing trends for {ticker}: {e}")
+            return {'error': str(e)}
+
+    def _calculate_percentile(self, prices: pd.Series, current_price: float) -> float:
+        """Calculate percentile of current price in historical range"""
+        if len(prices) == 0:
+            return None
+        return (prices < current_price).mean() * 100
+
+    def _calculate_cagr(self, start_price: float, end_price: float, years: float) -> float:
+        """Calculate Compound Annual Growth Rate"""
+        if years <= 0 or start_price <= 0:
+            return None
+        return ((end_price / start_price) ** (1/years) - 1) * 100
+
+    def _calculate_max_drawdown(self, prices: pd.Series) -> float:
+        """Calculate maximum drawdown"""
+        rolling_max = prices.expanding().max()
+        drawdown = (prices - rolling_max) / rolling_max
+        return drawdown.min() * 100
+
+    def _calculate_ma_trend(self, prices: pd.Series) -> str:
+        """Calculate moving average trend"""
+        try:
+            ma_50 = prices.rolling(50).mean()
+            ma_200 = prices.rolling(200).mean()
+            
+            if len(ma_50) < 2 or len(ma_200) < 2:
+                return "Insufficient Data"
+            
+            ma_50_trend = "Up" if ma_50.iloc[-1] > ma_50.iloc[-2] else "Down"
+            ma_200_trend = "Up" if ma_200.iloc[-1] > ma_200.iloc[-2] else "Down"
+            
+            if ma_50_trend == "Up" and ma_200_trend == "Up":
+                return "Strong Uptrend"
+            elif ma_50_trend == "Up" and ma_200_trend == "Down":
+                return "Mixed Trend"
+            elif ma_50_trend == "Down" and ma_200_trend == "Up":
+                return "Mixed Trend"
+            else:
+                return "Downtrend"
+                
+        except Exception as e:
+            return "Error"
+
+    def _calculate_pe_trend(self, pe_ratios: pd.Series) -> str:
+        """Calculate P/E ratio trend"""
+        try:
+            if len(pe_ratios) < 2:
+                return "Insufficient Data"
+            
+            # Calculate recent trend (last 20 data points)
+            recent_data = pe_ratios.tail(20)
+            if len(recent_data) < 2:
+                return "Insufficient Data"
+            
+            # Simple trend calculation
+            first_half = recent_data.iloc[:len(recent_data)//2].mean()
+            second_half = recent_data.iloc[len(recent_data)//2:].mean()
+            
+            if second_half > first_half * 1.05:  # 5% increase
+                return "Increasing"
+            elif second_half < first_half * 0.95:  # 5% decrease
+                return "Decreasing"
+            else:
+                return "Stable"
+                
+        except Exception as e:
+            return "Error"
+
 def main():
     """Main function"""
     scraper = StockValuationScraper()
-    scraper.run()
+    
+    # Check command line arguments for different modes
+    import sys
+    
+    if len(sys.argv) > 1:
+        mode = sys.argv[1].lower()
+        
+        if mode == 'historical':
+            print("Starting historical data collection...")
+            scraper.run_historical_collection()
+        elif mode == 'analyze':
+            if len(sys.argv) > 2:
+                ticker = sys.argv[2]
+                print(f"Analyzing historical trends for {ticker}...")
+                analysis = scraper.analyze_historical_trends(ticker)
+                print(f"Analysis for {ticker}:")
+                for key, value in analysis.items():
+                    print(f"  {key}: {value}")
+            else:
+                print("Analyzing historical trends for all stocks...")
+                analysis = scraper.analyze_historical_trends()
+                print(f"Analysis completed for {len(analysis)} stocks")
+        elif mode == 'both':
+            print("Running both historical collection and regular valuation...")
+            scraper.run_historical_collection()
+            scraper.run()
+        else:
+            print("Unknown mode. Available modes: historical, analyze, both")
+            print("Running regular valuation...")
+            scraper.run()
+    else:
+        print("Running regular valuation...")
+        print("Available modes:")
+        print("  python stock_valuation_scraper.py historical  - Collect historical data")
+        print("  python stock_valuation_scraper.py analyze [ticker]  - Analyze trends")
+        print("  python stock_valuation_scraper.py both  - Run both historical and regular")
+        scraper.run()
 
 if __name__ == "__main__":
     main()
