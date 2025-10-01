@@ -138,6 +138,9 @@ class RobustStockAnalyzer:
             'SPK.NZ': Sector.COMMUNICATION,
             'VCT.NZ': Sector.UTILITIES,
             'CNU.NZ': Sector.COMMUNICATION,
+            'WBC.NZ': Sector.FINANCIAL,
+            'ANZ.NZ': Sector.FINANCIAL,
+            'AFI.NZ': Sector.FINANCIAL,
             'BRK-B': Sector.FINANCIAL,
             'MSFT': Sector.TECHNOLOGY,
             'AAPL': Sector.TECHNOLOGY,
@@ -148,6 +151,16 @@ class RobustStockAnalyzer:
             'PEP': Sector.CONSUMER,
             'WMT': Sector.CONSUMER,
             'HD': Sector.CONSUMER,
+            'JPM': Sector.FINANCIAL,
+            'BAC': Sector.FINANCIAL,
+            'WFC': Sector.FINANCIAL,
+            'CVX': Sector.ENERGY,
+            'XOM': Sector.ENERGY,
+            'IBM': Sector.TECHNOLOGY,
+            'INTC': Sector.TECHNOLOGY,
+            'CSCO': Sector.TECHNOLOGY,
+            'ORCL': Sector.TECHNOLOGY,
+            'ADBE': Sector.TECHNOLOGY,
         }
         return sector_map.get(ticker, Sector.UNKNOWN)
     
@@ -247,11 +260,11 @@ class RobustStockAnalyzer:
         return 0.0
     
     def assess_quality(self, data: Dict) -> Tuple[bool, float, List[str]]:
-        """Assess business quality"""
+        """Assess business quality with strict criteria"""
         warnings = []
         quality_score = 0.0
         
-        # ROE assessment
+        # ROE assessment - STRICT: Must be > 10%
         roe = data.get('roe', 0)
         if roe > 15:
             quality_score += 0.3
@@ -302,59 +315,66 @@ class RobustStockAnalyzer:
         return is_quality, quality_score, warnings
     
     def assess_value(self, data: Dict, sector: Sector) -> Tuple[bool, float, List[str]]:
-        """Assess valuation attractiveness"""
+        """Assess valuation attractiveness with strict value criteria"""
         warnings = []
         value_score = 0.0
         
-        # P/E ratio assessment
+        # STRICT VALUE CRITERIA: P/E < 15
         pe_ratio = data.get('pe_ratio', 0)
         if pe_ratio > 0:
             if pe_ratio < 15:
-                value_score += 0.3
+                value_score += 0.4  # Higher weight for P/E < 15
             elif pe_ratio < 20:
                 value_score += 0.2
             elif pe_ratio > 30:
                 warnings.append(f"High P/E ratio: {pe_ratio:.1f}")
         
-        # PEG ratio assessment
+        # PEG ratio assessment (must be < 1.5 for value)
         peg_ratio = data.get('peg_ratio', 0)
         if peg_ratio > 0:
             if peg_ratio < 1.0:
-                value_score += 0.2
+                value_score += 0.3
             elif peg_ratio < 1.5:
                 value_score += 0.1
             elif peg_ratio > 2.0:
                 warnings.append(f"High PEG ratio: {peg_ratio:.2f}")
         
-        # P/B ratio assessment (sector-specific)
+        # P/B ratio assessment (sector-specific, stricter for value)
         pb_ratio = data.get('pb_ratio', 0)
         if pb_ratio > 0:
             if sector == Sector.FINANCIAL:
-                if pb_ratio < 1.5:
-                    value_score += 0.2
+                if pb_ratio < 1.2:  # Stricter for financials
+                    value_score += 0.3
+                elif pb_ratio < 1.5:
+                    value_score += 0.1
                 elif pb_ratio > 2.0:
                     warnings.append(f"High P/B for financial: {pb_ratio:.2f}")
             else:
-                if pb_ratio < 2.0:
-                    value_score += 0.2
+                if pb_ratio < 1.5:  # Stricter for non-financials
+                    value_score += 0.3
+                elif pb_ratio < 2.0:
+                    value_score += 0.1
                 elif pb_ratio > 3.0:
                     warnings.append(f"High P/B ratio: {pb_ratio:.2f}")
         
-        # Dividend yield assessment
+        # Dividend yield assessment (bonus points)
         dividend_yield = data.get('dividend_yield', 0)
-        if dividend_yield > 3:
-            value_score += 0.1
+        if dividend_yield > 4:
+            value_score += 0.2
         elif dividend_yield > 2:
-            value_score += 0.05
+            value_score += 0.1
         
-        # FCF yield assessment
+        # FCF yield assessment (must be > 3% for value)
         fcf_yield = self.calculate_fcf_yield(data)
         if fcf_yield > 5:
-            value_score += 0.2
+            value_score += 0.3
         elif fcf_yield > 3:
-            value_score += 0.1
+            value_score += 0.2
+        elif fcf_yield < 1:
+            warnings.append(f"Low FCF yield: {fcf_yield:.1f}%")
         
-        is_cheap = value_score >= 0.5
+        # STRICT VALUE CRITERIA: Must meet multiple criteria
+        is_cheap = value_score >= 0.6  # Stricter threshold
         return is_cheap, value_score, warnings
     
     def calculate_margin_of_safety(self, data: Dict) -> float:
@@ -451,23 +471,121 @@ class RobustStockAnalyzer:
             warnings=all_warnings
         )
     
+    def save_to_primary_dataset(self, results: List[ValuationSummary]):
+        """Save comprehensive data to primary dataset"""
+        if not results:
+            logger.warning("No results to save to primary dataset")
+            return
+        
+        # Convert to comprehensive DataFrame
+        data = []
+        for result in results:
+            # Get the raw data for this ticker
+            raw_data = self.get_stock_data(result.ticker)
+            
+            data.append({
+                'Ticker': result.ticker,
+                'Company Name': result.company_name,
+                'Current Price': result.current_price,
+                'Sector': result.sector,
+                'Industry': raw_data.get('industry', 'Unknown'),
+                'Market Cap': raw_data.get('market_cap', 0),
+                'P/E Ratio': result.pe_ratio,
+                'P/B Ratio': result.pb_ratio,
+                'PEG Ratio': result.peg_ratio,
+                'P/S Ratio': raw_data.get('ps_ratio', 0),
+                'Dividend Yield %': result.dividend_yield,
+                'EPS TTM': raw_data.get('eps_ttm', 0),
+                'EPS Growth 5Y %': raw_data.get('eps_growth_5y', 0),
+                'Revenue Growth 5Y %': raw_data.get('revenue_growth_5y', 0),
+                'ROE %': result.roe,
+                'ROA %': raw_data.get('roa', 0),
+                'ROIC %': raw_data.get('roic', 0),
+                'Debt/Equity': result.debt_to_equity,
+                'Current Ratio': result.current_ratio,
+                'Quick Ratio': raw_data.get('quick_ratio', 0),
+                'FCF TTM': raw_data.get('fcf_ttm', 0),
+                'FCF Yield %': result.fcf_yield,
+                'Net Income': raw_data.get('net_income', 0),
+                'Revenue TTM': raw_data.get('revenue_ttm', 0),
+                'Gross Margin %': raw_data.get('gross_margin', 0),
+                'Operating Margin %': raw_data.get('operating_margin', 0),
+                'Net Margin %': raw_data.get('net_margin', 0),
+                'Beta': raw_data.get('beta', 1.0),
+                'Shares Outstanding': raw_data.get('shares_outstanding', 0),
+                'Book Value Per Share': raw_data.get('book_value_per_share', 0),
+                'Cash Per Share': raw_data.get('cash_per_share', 0),
+                'Debt Per Share': raw_data.get('debt_per_share', 0),
+                'Volatility 1Y %': raw_data.get('volatility_1y', 0),
+                'Max Drawdown 5Y %': raw_data.get('max_drawdown_5y', 0),
+                'Price Change 1Y %': raw_data.get('price_change_1y', 0),
+                'Price Change 3M %': raw_data.get('price_change_3m', 0),
+                'Is Cheap': result.is_cheap,
+                'Is Quality': result.is_quality,
+                'Margin of Safety %': result.margin_of_safety,
+                'Confidence': result.confidence,
+                'Warnings': '; '.join(result.warnings) if result.warnings else '',
+                'Timestamp': raw_data.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            })
+        
+        df = pd.DataFrame(data)
+        
+        # Save to primary dataset
+        try:
+            df.to_excel(self.primary_dataset_path, index=False)
+            logger.info(f"Primary dataset saved to {self.primary_dataset_path}")
+        except Exception as e:
+            logger.error(f"Error saving primary dataset: {e}")
+    
     def run_analysis(self):
-        """Run comprehensive analysis"""
-        logger.info("Starting robust stock valuation analysis")
+        """Run comprehensive analysis with value screening"""
+        logger.info("Starting comprehensive stock valuation analysis with value screening")
         
         results = []
+        value_candidates = []
+        
         for ticker in self.focus_stocks.keys():
             try:
                 result = self.analyze_stock(ticker)
                 if result:
                     results.append(result)
+                    
+                    # Check if meets strict value criteria
+                    if (result.pe_ratio < 15 and result.pe_ratio > 0 and 
+                        result.roe > 10 and result.is_quality):
+                        value_candidates.append(result)
+                        logger.info(f"VALUE CANDIDATE: {ticker} - P/E: {result.pe_ratio:.1f}, ROE: {result.roe:.1f}%")
+                
                 time.sleep(1)  # Rate limiting
             except Exception as e:
                 logger.error(f"Error analyzing {ticker}: {e}")
         
-        # Save and display results
+        # Save comprehensive data to primary dataset
+        self.save_to_primary_dataset(results)
+        
+        # Save filtered results
         self.save_results(results)
+        
+        # Display results
         self.print_summary(results)
+        
+        # Print value candidates
+        if value_candidates:
+            print(f"\n🎯 VALUE CANDIDATES FOUND (P/E < 15, ROE > 10%, Quality):")
+            print("=" * 80)
+            for candidate in sorted(value_candidates, key=lambda x: x.pe_ratio):
+                print(f"• {candidate.ticker} ({candidate.company_name})")
+                print(f"  P/E: {candidate.pe_ratio:.1f} | ROE: {candidate.roe:.1f}% | "
+                      f"P/B: {candidate.pb_ratio:.1f} | FCF Yield: {candidate.fcf_yield:.1f}%")
+                print(f"  Margin of Safety: {candidate.margin_of_safety:.1f}% | "
+                      f"Confidence: {candidate.confidence:.2f}")
+                if candidate.warnings:
+                    print(f"  Warnings: {'; '.join(candidate.warnings)}")
+                print()
+        else:
+            print(f"\n❌ NO VALUE CANDIDATES FOUND")
+            print("Current market conditions may not offer traditional value opportunities.")
+            print("Consider expanding criteria or waiting for market correction.")
     
     def save_results(self, results: List[ValuationSummary]):
         """Save results to Excel"""
@@ -501,14 +619,14 @@ class RobustStockAnalyzer:
         df = pd.DataFrame(data)
         
         # Save to Excel
-        output_file = os.path.join(self.output_dir, f"robust_valuation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+        output_file = os.path.join(self.output_dir, f"valuation_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
         df.to_excel(output_file, index=False)
         logger.info(f"Results saved to {output_file}")
     
     def print_summary(self, results: List[ValuationSummary]):
         """Print analysis summary"""
         print("\n" + "="*100)
-        print("ROBUST STOCK VALUATION ANALYSIS")
+        print("COMPREHENSIVE STOCK VALUATION ANALYSIS WITH VALUE SCREENING")
         print("="*100)
         
         # Sort by margin of safety
