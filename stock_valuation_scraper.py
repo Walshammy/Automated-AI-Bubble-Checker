@@ -1743,9 +1743,9 @@ class StockValuationScraper:
             stocks_without_data = []  # No valuation methods
             
             for _, stock_row in df.iterrows():
-                lynch_status = stock_row.get('lynch_valuation_status', 'N/A')
-                dcf_status = stock_row.get('dcf_valuation_status', 'N/A')
-                munger_assessment = stock_row.get('munger_7pct_assessment', 'N/A')
+                lynch_status = stock_row['lynch_valuation_status'] if 'lynch_valuation_status' in stock_row and pd.notna(stock_row['lynch_valuation_status']) else 'N/A'
+                dcf_status = stock_row['dcf_valuation_status'] if 'dcf_valuation_status' in stock_row and pd.notna(stock_row['dcf_valuation_status']) else 'N/A'
+                munger_assessment = stock_row['munger_7pct_assessment'] if 'munger_7pct_assessment' in stock_row and pd.notna(stock_row['munger_7pct_assessment']) else 'N/A'
                 
                 # Count how many valuation methods are available
                 available_methods = 0
@@ -1782,8 +1782,8 @@ class StockValuationScraper:
                 ws_summary[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
                 
                 # Peter Lynch Valuation (Column B)
-                lynch_status = stock_row.get('lynch_valuation_status', 'N/A')
-                lynch_delta = stock_row.get('lynch_delta_percentage', 0)
+                lynch_status = stock_row['lynch_valuation_status'] if 'lynch_valuation_status' in stock_row and pd.notna(stock_row['lynch_valuation_status']) else 'N/A'
+                lynch_delta = stock_row['lynch_delta_percentage'] if 'lynch_delta_percentage' in stock_row and pd.notna(stock_row['lynch_delta_percentage']) else 0
                 
                 if lynch_status != 'N/A':
                     lynch_text = f"{lynch_status}\nDelta: {lynch_delta:+.1f}%"
@@ -1811,8 +1811,8 @@ class StockValuationScraper:
                     ws_summary[f'B{row}'].fill = no_data_fill
                 
                 # DCF Valuation (Column C)
-                dcf_status = stock_row.get('dcf_valuation_status', 'N/A')
-                dcf_delta = stock_row.get('dcf_delta_percentage', 0)
+                dcf_status = stock_row['dcf_valuation_status'] if 'dcf_valuation_status' in stock_row and pd.notna(stock_row['dcf_valuation_status']) else 'N/A'
+                dcf_delta = stock_row['dcf_delta_percentage'] if 'dcf_delta_percentage' in stock_row and pd.notna(stock_row['dcf_delta_percentage']) else 0
                 
                 if dcf_status != 'N/A':
                     dcf_text = f"{dcf_status}\nDelta: {dcf_delta:+.1f}%"
@@ -1840,8 +1840,8 @@ class StockValuationScraper:
                     ws_summary[f'C{row}'].fill = no_data_fill
                 
                 # Munger Farm Valuation (Column D)
-                munger_assessment = stock_row.get('munger_7pct_assessment', 'N/A')
-                munger_delta = stock_row.get('munger_7pct_delta_percentage', 0)
+                munger_assessment = stock_row['munger_7pct_assessment'] if 'munger_7pct_assessment' in stock_row and pd.notna(stock_row['munger_7pct_assessment']) else 'N/A'
+                munger_delta = stock_row['munger_7pct_delta_percentage'] if 'munger_7pct_delta_percentage' in stock_row and pd.notna(stock_row['munger_7pct_delta_percentage']) else 0
                 
                 if munger_assessment != 'N/A':
                     munger_text = f"{munger_assessment}\nDelta: {munger_delta:+.1f}%"
@@ -1869,8 +1869,8 @@ class StockValuationScraper:
                     ws_summary[f'D{row}'].fill = no_data_fill
                 
                 # Enhanced DCF Valuation (Column E)
-                enhanced_dcf_status = stock_row.get('enhanced_dcf_status', 'N/A')
-                enhanced_dcf_delta = stock_row.get('enhanced_dcf_delta', 0)
+                enhanced_dcf_status = stock_row['enhanced_dcf_status'] if 'enhanced_dcf_status' in stock_row and pd.notna(stock_row['enhanced_dcf_status']) else 'N/A'
+                enhanced_dcf_delta = stock_row['enhanced_dcf_delta'] if 'enhanced_dcf_delta' in stock_row and pd.notna(stock_row['enhanced_dcf_delta']) else 0
                 
                 if enhanced_dcf_status != 'N/A':
                     enhanced_dcf_text = f"{enhanced_dcf_status}\nDelta: {enhanced_dcf_delta:+.1f}%"
@@ -1898,8 +1898,8 @@ class StockValuationScraper:
                     ws_summary[f'E{row}'].fill = no_data_fill
                 
                 # Relative Valuation (Column F)
-                relative_status = stock_row.get('relative_valuation_status', 'N/A')
-                relative_delta = stock_row.get('relative_valuation_delta', 0)
+                relative_status = stock_row['relative_valuation_status'] if 'relative_valuation_status' in stock_row and pd.notna(stock_row['relative_valuation_status']) else 'N/A'
+                relative_delta = stock_row['relative_valuation_delta'] if 'relative_valuation_delta' in stock_row and pd.notna(stock_row['relative_valuation_delta']) else 0
                 
                 if relative_status != 'N/A':
                     relative_text = f"{relative_status}\nDelta: {relative_delta:+.1f}%"
@@ -1927,8 +1927,8 @@ class StockValuationScraper:
                     ws_summary[f'F{row}'].fill = no_data_fill
                 
                 # Reverse DCF Valuation (Column G)
-                reverse_dcf_assessment = stock_row.get('reverse_dcf_assessment', 'N/A')
-                reverse_dcf_growth = stock_row.get('reverse_dcf_implied_growth', 0)
+                reverse_dcf_assessment = stock_row['reverse_dcf_assessment'] if 'reverse_dcf_assessment' in stock_row and pd.notna(stock_row['reverse_dcf_assessment']) else 'N/A'
+                reverse_dcf_growth = stock_row['reverse_dcf_implied_growth'] if 'reverse_dcf_implied_growth' in stock_row and pd.notna(stock_row['reverse_dcf_implied_growth']) else 0
                 
                 if reverse_dcf_assessment != 'N/A':
                     reverse_dcf_text = f"{reverse_dcf_assessment}\nGrowth: {reverse_dcf_growth:+.1f}%"
@@ -1952,10 +1952,10 @@ class StockValuationScraper:
                     ws_summary[f'G{row}'].fill = no_data_fill
                 
                 # EPV/RIM Valuation (Column H)
-                epv_assessment = stock_row.get('epv_assessment', 'N/A')
-                epv_delta = stock_row.get('epv_delta', 0)
-                rim_assessment = stock_row.get('rim_assessment', 'N/A')
-                rim_delta = stock_row.get('rim_delta', 0)
+                epv_assessment = stock_row['epv_assessment'] if 'epv_assessment' in stock_row and pd.notna(stock_row['epv_assessment']) else 'N/A'
+                epv_delta = stock_row['epv_delta'] if 'epv_delta' in stock_row and pd.notna(stock_row['epv_delta']) else 0
+                rim_assessment = stock_row['rim_assessment'] if 'rim_assessment' in stock_row and pd.notna(stock_row['rim_assessment']) else 'N/A'
+                rim_delta = stock_row['rim_delta'] if 'rim_delta' in stock_row and pd.notna(stock_row['rim_delta']) else 0
                 
                 # Use EPV if available, otherwise RIM
                 if epv_assessment != 'N/A':
@@ -2028,8 +2028,8 @@ class StockValuationScraper:
                 ws_summary[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
                 
                 # Peter Lynch Valuation (Column B)
-                lynch_status = stock_row.get('lynch_valuation_status', 'N/A')
-                lynch_delta = stock_row.get('lynch_delta_percentage', 0)
+                lynch_status = stock_row['lynch_valuation_status'] if 'lynch_valuation_status' in stock_row and pd.notna(stock_row['lynch_valuation_status']) else 'N/A'
+                lynch_delta = stock_row['lynch_delta_percentage'] if 'lynch_delta_percentage' in stock_row and pd.notna(stock_row['lynch_delta_percentage']) else 0
                 
                 if lynch_status != 'N/A':
                     lynch_text = f"{lynch_status}\nDelta: {lynch_delta:+.1f}%"
@@ -2057,8 +2057,8 @@ class StockValuationScraper:
                     ws_summary[f'B{row}'].fill = no_data_fill
                 
                 # DCF Valuation (Column C)
-                dcf_status = stock_row.get('dcf_valuation_status', 'N/A')
-                dcf_delta = stock_row.get('dcf_delta_percentage', 0)
+                dcf_status = stock_row['dcf_valuation_status'] if 'dcf_valuation_status' in stock_row and pd.notna(stock_row['dcf_valuation_status']) else 'N/A'
+                dcf_delta = stock_row['dcf_delta_percentage'] if 'dcf_delta_percentage' in stock_row and pd.notna(stock_row['dcf_delta_percentage']) else 0
                 
                 if dcf_status != 'N/A':
                     dcf_text = f"{dcf_status}\nDelta: {dcf_delta:+.1f}%"
@@ -2086,8 +2086,8 @@ class StockValuationScraper:
                     ws_summary[f'C{row}'].fill = no_data_fill
                 
                 # Munger Farm Valuation (Column D)
-                munger_assessment = stock_row.get('munger_7pct_assessment', 'N/A')
-                munger_delta = stock_row.get('munger_7pct_delta_percentage', 0)
+                munger_assessment = stock_row['munger_7pct_assessment'] if 'munger_7pct_assessment' in stock_row and pd.notna(stock_row['munger_7pct_assessment']) else 'N/A'
+                munger_delta = stock_row['munger_7pct_delta_percentage'] if 'munger_7pct_delta_percentage' in stock_row and pd.notna(stock_row['munger_7pct_delta_percentage']) else 0
                 
                 if munger_assessment != 'N/A':
                     munger_text = f"{munger_assessment}\nDelta: {munger_delta:+.1f}%"
@@ -2115,8 +2115,8 @@ class StockValuationScraper:
                     ws_summary[f'D{row}'].fill = no_data_fill
                 
                 # Enhanced DCF Valuation (Column E)
-                enhanced_dcf_status = stock_row.get('enhanced_dcf_status', 'N/A')
-                enhanced_dcf_delta = stock_row.get('enhanced_dcf_delta', 0)
+                enhanced_dcf_status = stock_row['enhanced_dcf_status'] if 'enhanced_dcf_status' in stock_row and pd.notna(stock_row['enhanced_dcf_status']) else 'N/A'
+                enhanced_dcf_delta = stock_row['enhanced_dcf_delta'] if 'enhanced_dcf_delta' in stock_row and pd.notna(stock_row['enhanced_dcf_delta']) else 0
                 
                 if enhanced_dcf_status != 'N/A':
                     enhanced_dcf_text = f"{enhanced_dcf_status}\nDelta: {enhanced_dcf_delta:+.1f}%"
@@ -2144,8 +2144,8 @@ class StockValuationScraper:
                     ws_summary[f'E{row}'].fill = no_data_fill
                 
                 # Relative Valuation (Column F)
-                relative_status = stock_row.get('relative_valuation_status', 'N/A')
-                relative_delta = stock_row.get('relative_valuation_delta', 0)
+                relative_status = stock_row['relative_valuation_status'] if 'relative_valuation_status' in stock_row and pd.notna(stock_row['relative_valuation_status']) else 'N/A'
+                relative_delta = stock_row['relative_valuation_delta'] if 'relative_valuation_delta' in stock_row and pd.notna(stock_row['relative_valuation_delta']) else 0
                 
                 if relative_status != 'N/A':
                     relative_text = f"{relative_status}\nDelta: {relative_delta:+.1f}%"
@@ -2173,8 +2173,8 @@ class StockValuationScraper:
                     ws_summary[f'F{row}'].fill = no_data_fill
                 
                 # Reverse DCF Valuation (Column G)
-                reverse_dcf_assessment = stock_row.get('reverse_dcf_assessment', 'N/A')
-                reverse_dcf_growth = stock_row.get('reverse_dcf_implied_growth', 0)
+                reverse_dcf_assessment = stock_row['reverse_dcf_assessment'] if 'reverse_dcf_assessment' in stock_row and pd.notna(stock_row['reverse_dcf_assessment']) else 'N/A'
+                reverse_dcf_growth = stock_row['reverse_dcf_implied_growth'] if 'reverse_dcf_implied_growth' in stock_row and pd.notna(stock_row['reverse_dcf_implied_growth']) else 0
                 
                 if reverse_dcf_assessment != 'N/A':
                     reverse_dcf_text = f"{reverse_dcf_assessment}\nGrowth: {reverse_dcf_growth:+.1f}%"
@@ -2198,10 +2198,10 @@ class StockValuationScraper:
                     ws_summary[f'G{row}'].fill = no_data_fill
                 
                 # EPV/RIM Valuation (Column H)
-                epv_assessment = stock_row.get('epv_assessment', 'N/A')
-                epv_delta = stock_row.get('epv_delta', 0)
-                rim_assessment = stock_row.get('rim_assessment', 'N/A')
-                rim_delta = stock_row.get('rim_delta', 0)
+                epv_assessment = stock_row['epv_assessment'] if 'epv_assessment' in stock_row and pd.notna(stock_row['epv_assessment']) else 'N/A'
+                epv_delta = stock_row['epv_delta'] if 'epv_delta' in stock_row and pd.notna(stock_row['epv_delta']) else 0
+                rim_assessment = stock_row['rim_assessment'] if 'rim_assessment' in stock_row and pd.notna(stock_row['rim_assessment']) else 'N/A'
+                rim_delta = stock_row['rim_delta'] if 'rim_delta' in stock_row and pd.notna(stock_row['rim_delta']) else 0
                 
                 # Use EPV if available, otherwise RIM
                 if epv_assessment != 'N/A':
@@ -2380,19 +2380,19 @@ class StockValuationScraper:
                 count = 0
                 
                 # Peter Lynch score
-                lynch_delta = stock_row.get('lynch_delta_percentage', 0)
+                lynch_delta = stock_row['lynch_delta_percentage'] if 'lynch_delta_percentage' in stock_row and pd.notna(stock_row['lynch_delta_percentage']) else 0
                 if lynch_delta != 0:
                     score += lynch_delta
                     count += 1
                 
                 # DCF score
-                dcf_delta = stock_row.get('dcf_delta_percentage', 0)
+                dcf_delta = stock_row['dcf_delta_percentage'] if 'dcf_delta_percentage' in stock_row and pd.notna(stock_row['dcf_delta_percentage']) else 0
                 if dcf_delta != 0:
                     score += dcf_delta
                     count += 1
                 
                 # Munger score
-                munger_delta = stock_row.get('munger_7pct_delta_percentage', 0)
+                munger_delta = stock_row['munger_7pct_delta_percentage'] if 'munger_7pct_delta_percentage' in stock_row and pd.notna(stock_row['munger_7pct_delta_percentage']) else 0
                 if munger_delta != 0:
                     score += munger_delta
                     count += 1
@@ -2405,9 +2405,9 @@ class StockValuationScraper:
             stocks_without_data = []
             
             for _, stock_row in df.iterrows():
-                lynch_status = stock_row.get('lynch_valuation_status', 'N/A')
-                dcf_status = stock_row.get('dcf_valuation_status', 'N/A')
-                munger_assessment = stock_row.get('munger_7pct_assessment', 'N/A')
+                lynch_status = stock_row['lynch_valuation_status'] if 'lynch_valuation_status' in stock_row and pd.notna(stock_row['lynch_valuation_status']) else 'N/A'
+                dcf_status = stock_row['dcf_valuation_status'] if 'dcf_valuation_status' in stock_row and pd.notna(stock_row['dcf_valuation_status']) else 'N/A'
+                munger_assessment = stock_row['munger_7pct_assessment'] if 'munger_7pct_assessment' in stock_row and pd.notna(stock_row['munger_7pct_assessment']) else 'N/A'
                 
                 # Count how many valuation methods are available
                 available_methods = 0
@@ -2452,8 +2452,8 @@ class StockValuationScraper:
                 ws_prospects[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
                 
                 # Peter Lynch Valuation (Column B)
-                lynch_status = stock_row.get('lynch_valuation_status', 'N/A')
-                lynch_delta = stock_row.get('lynch_delta_percentage', 0)
+                lynch_status = stock_row['lynch_valuation_status'] if 'lynch_valuation_status' in stock_row and pd.notna(stock_row['lynch_valuation_status']) else 'N/A'
+                lynch_delta = stock_row['lynch_delta_percentage'] if 'lynch_delta_percentage' in stock_row and pd.notna(stock_row['lynch_delta_percentage']) else 0
                 
                 if lynch_status != 'N/A':
                     lynch_text = f"{lynch_status}\nDelta: {lynch_delta:+.1f}%"
@@ -2481,8 +2481,8 @@ class StockValuationScraper:
                     ws_prospects[f'B{row}'].fill = no_data_fill
                 
                 # DCF Valuation (Column C)
-                dcf_status = stock_row.get('dcf_valuation_status', 'N/A')
-                dcf_delta = stock_row.get('dcf_delta_percentage', 0)
+                dcf_status = stock_row['dcf_valuation_status'] if 'dcf_valuation_status' in stock_row and pd.notna(stock_row['dcf_valuation_status']) else 'N/A'
+                dcf_delta = stock_row['dcf_delta_percentage'] if 'dcf_delta_percentage' in stock_row and pd.notna(stock_row['dcf_delta_percentage']) else 0
                 
                 if dcf_status != 'N/A':
                     dcf_text = f"{dcf_status}\nDelta: {dcf_delta:+.1f}%"
@@ -2510,8 +2510,8 @@ class StockValuationScraper:
                     ws_prospects[f'C{row}'].fill = no_data_fill
                 
                 # Munger Farm Valuation (Column D)
-                munger_assessment = stock_row.get('munger_7pct_assessment', 'N/A')
-                munger_delta = stock_row.get('munger_7pct_delta_percentage', 0)
+                munger_assessment = stock_row['munger_7pct_assessment'] if 'munger_7pct_assessment' in stock_row and pd.notna(stock_row['munger_7pct_assessment']) else 'N/A'
+                munger_delta = stock_row['munger_7pct_delta_percentage'] if 'munger_7pct_delta_percentage' in stock_row and pd.notna(stock_row['munger_7pct_delta_percentage']) else 0
                 
                 if munger_assessment != 'N/A':
                     munger_text = f"{munger_assessment}\nDelta: {munger_delta:+.1f}%"
@@ -2539,8 +2539,8 @@ class StockValuationScraper:
                     ws_prospects[f'D{row}'].fill = no_data_fill
                 
                 # Enhanced DCF Valuation (Column E)
-                enhanced_dcf_status = stock_row.get('enhanced_dcf_status', 'N/A')
-                enhanced_dcf_delta = stock_row.get('enhanced_dcf_delta', 0)
+                enhanced_dcf_status = stock_row['enhanced_dcf_status'] if 'enhanced_dcf_status' in stock_row and pd.notna(stock_row['enhanced_dcf_status']) else 'N/A'
+                enhanced_dcf_delta = stock_row['enhanced_dcf_delta'] if 'enhanced_dcf_delta' in stock_row and pd.notna(stock_row['enhanced_dcf_delta']) else 0
                 
                 if enhanced_dcf_status != 'N/A':
                     enhanced_dcf_text = f"{enhanced_dcf_status}\nDelta: {enhanced_dcf_delta:+.1f}%"
@@ -2568,8 +2568,8 @@ class StockValuationScraper:
                     ws_prospects[f'E{row}'].fill = no_data_fill
                 
                 # Relative Valuation (Column F)
-                relative_status = stock_row.get('relative_valuation_status', 'N/A')
-                relative_delta = stock_row.get('relative_valuation_delta', 0)
+                relative_status = stock_row['relative_valuation_status'] if 'relative_valuation_status' in stock_row and pd.notna(stock_row['relative_valuation_status']) else 'N/A'
+                relative_delta = stock_row['relative_valuation_delta'] if 'relative_valuation_delta' in stock_row and pd.notna(stock_row['relative_valuation_delta']) else 0
                 
                 if relative_status != 'N/A':
                     relative_text = f"{relative_status}\nDelta: {relative_delta:+.1f}%"
@@ -2597,8 +2597,8 @@ class StockValuationScraper:
                     ws_prospects[f'F{row}'].fill = no_data_fill
                 
                 # Reverse DCF Valuation (Column G)
-                reverse_dcf_assessment = stock_row.get('reverse_dcf_assessment', 'N/A')
-                reverse_dcf_growth = stock_row.get('reverse_dcf_implied_growth', 0)
+                reverse_dcf_assessment = stock_row['reverse_dcf_assessment'] if 'reverse_dcf_assessment' in stock_row and pd.notna(stock_row['reverse_dcf_assessment']) else 'N/A'
+                reverse_dcf_growth = stock_row['reverse_dcf_implied_growth'] if 'reverse_dcf_implied_growth' in stock_row and pd.notna(stock_row['reverse_dcf_implied_growth']) else 0
                 
                 if reverse_dcf_assessment != 'N/A':
                     reverse_dcf_text = f"{reverse_dcf_assessment}\nGrowth: {reverse_dcf_growth:+.1f}%"
@@ -2622,10 +2622,10 @@ class StockValuationScraper:
                     ws_prospects[f'G{row}'].fill = no_data_fill
                 
                 # EPV/RIM Valuation (Column H)
-                epv_assessment = stock_row.get('epv_assessment', 'N/A')
-                epv_delta = stock_row.get('epv_delta', 0)
-                rim_assessment = stock_row.get('rim_assessment', 'N/A')
-                rim_delta = stock_row.get('rim_delta', 0)
+                epv_assessment = stock_row['epv_assessment'] if 'epv_assessment' in stock_row and pd.notna(stock_row['epv_assessment']) else 'N/A'
+                epv_delta = stock_row['epv_delta'] if 'epv_delta' in stock_row and pd.notna(stock_row['epv_delta']) else 0
+                rim_assessment = stock_row['rim_assessment'] if 'rim_assessment' in stock_row and pd.notna(stock_row['rim_assessment']) else 'N/A'
+                rim_delta = stock_row['rim_delta'] if 'rim_delta' in stock_row and pd.notna(stock_row['rim_delta']) else 0
                 
                 # Use EPV if available, otherwise RIM
                 if epv_assessment != 'N/A':
@@ -2698,8 +2698,8 @@ class StockValuationScraper:
                 ws_prospects[f'E{row}'].alignment = Alignment(horizontal='center', vertical='center')
                 
                 # Peter Lynch Valuation (Column B)
-                lynch_status = stock_row.get('lynch_valuation_status', 'N/A')
-                lynch_delta = stock_row.get('lynch_delta_percentage', 0)
+                lynch_status = stock_row['lynch_valuation_status'] if 'lynch_valuation_status' in stock_row and pd.notna(stock_row['lynch_valuation_status']) else 'N/A'
+                lynch_delta = stock_row['lynch_delta_percentage'] if 'lynch_delta_percentage' in stock_row and pd.notna(stock_row['lynch_delta_percentage']) else 0
                 
                 if lynch_status != 'N/A':
                     lynch_text = f"{lynch_status}\nDelta: {lynch_delta:+.1f}%"
@@ -2727,8 +2727,8 @@ class StockValuationScraper:
                     ws_prospects[f'B{row}'].fill = no_data_fill
                 
                 # DCF Valuation (Column C)
-                dcf_status = stock_row.get('dcf_valuation_status', 'N/A')
-                dcf_delta = stock_row.get('dcf_delta_percentage', 0)
+                dcf_status = stock_row['dcf_valuation_status'] if 'dcf_valuation_status' in stock_row and pd.notna(stock_row['dcf_valuation_status']) else 'N/A'
+                dcf_delta = stock_row['dcf_delta_percentage'] if 'dcf_delta_percentage' in stock_row and pd.notna(stock_row['dcf_delta_percentage']) else 0
                 
                 if dcf_status != 'N/A':
                     dcf_text = f"{dcf_status}\nDelta: {dcf_delta:+.1f}%"
@@ -2756,8 +2756,8 @@ class StockValuationScraper:
                     ws_prospects[f'C{row}'].fill = no_data_fill
                 
                 # Munger Farm Valuation (Column D)
-                munger_assessment = stock_row.get('munger_7pct_assessment', 'N/A')
-                munger_delta = stock_row.get('munger_7pct_delta_percentage', 0)
+                munger_assessment = stock_row['munger_7pct_assessment'] if 'munger_7pct_assessment' in stock_row and pd.notna(stock_row['munger_7pct_assessment']) else 'N/A'
+                munger_delta = stock_row['munger_7pct_delta_percentage'] if 'munger_7pct_delta_percentage' in stock_row and pd.notna(stock_row['munger_7pct_delta_percentage']) else 0
                 
                 if munger_assessment != 'N/A':
                     munger_text = f"{munger_assessment}\nDelta: {munger_delta:+.1f}%"
@@ -2785,8 +2785,8 @@ class StockValuationScraper:
                     ws_prospects[f'D{row}'].fill = no_data_fill
                 
                 # Enhanced DCF Valuation (Column E)
-                enhanced_dcf_status = stock_row.get('enhanced_dcf_status', 'N/A')
-                enhanced_dcf_delta = stock_row.get('enhanced_dcf_delta', 0)
+                enhanced_dcf_status = stock_row['enhanced_dcf_status'] if 'enhanced_dcf_status' in stock_row and pd.notna(stock_row['enhanced_dcf_status']) else 'N/A'
+                enhanced_dcf_delta = stock_row['enhanced_dcf_delta'] if 'enhanced_dcf_delta' in stock_row and pd.notna(stock_row['enhanced_dcf_delta']) else 0
                 
                 if enhanced_dcf_status != 'N/A':
                     enhanced_dcf_text = f"{enhanced_dcf_status}\nDelta: {enhanced_dcf_delta:+.1f}%"
@@ -2814,8 +2814,8 @@ class StockValuationScraper:
                     ws_prospects[f'E{row}'].fill = no_data_fill
                 
                 # Relative Valuation (Column F)
-                relative_status = stock_row.get('relative_valuation_status', 'N/A')
-                relative_delta = stock_row.get('relative_valuation_delta', 0)
+                relative_status = stock_row['relative_valuation_status'] if 'relative_valuation_status' in stock_row and pd.notna(stock_row['relative_valuation_status']) else 'N/A'
+                relative_delta = stock_row['relative_valuation_delta'] if 'relative_valuation_delta' in stock_row and pd.notna(stock_row['relative_valuation_delta']) else 0
                 
                 if relative_status != 'N/A':
                     relative_text = f"{relative_status}\nDelta: {relative_delta:+.1f}%"
@@ -2843,8 +2843,8 @@ class StockValuationScraper:
                     ws_prospects[f'F{row}'].fill = no_data_fill
                 
                 # Reverse DCF Valuation (Column G)
-                reverse_dcf_assessment = stock_row.get('reverse_dcf_assessment', 'N/A')
-                reverse_dcf_growth = stock_row.get('reverse_dcf_implied_growth', 0)
+                reverse_dcf_assessment = stock_row['reverse_dcf_assessment'] if 'reverse_dcf_assessment' in stock_row and pd.notna(stock_row['reverse_dcf_assessment']) else 'N/A'
+                reverse_dcf_growth = stock_row['reverse_dcf_implied_growth'] if 'reverse_dcf_implied_growth' in stock_row and pd.notna(stock_row['reverse_dcf_implied_growth']) else 0
                 
                 if reverse_dcf_assessment != 'N/A':
                     reverse_dcf_text = f"{reverse_dcf_assessment}\nGrowth: {reverse_dcf_growth:+.1f}%"
@@ -2868,10 +2868,10 @@ class StockValuationScraper:
                     ws_prospects[f'G{row}'].fill = no_data_fill
                 
                 # EPV/RIM Valuation (Column H)
-                epv_assessment = stock_row.get('epv_assessment', 'N/A')
-                epv_delta = stock_row.get('epv_delta', 0)
-                rim_assessment = stock_row.get('rim_assessment', 'N/A')
-                rim_delta = stock_row.get('rim_delta', 0)
+                epv_assessment = stock_row['epv_assessment'] if 'epv_assessment' in stock_row and pd.notna(stock_row['epv_assessment']) else 'N/A'
+                epv_delta = stock_row['epv_delta'] if 'epv_delta' in stock_row and pd.notna(stock_row['epv_delta']) else 0
+                rim_assessment = stock_row['rim_assessment'] if 'rim_assessment' in stock_row and pd.notna(stock_row['rim_assessment']) else 'N/A'
+                rim_delta = stock_row['rim_delta'] if 'rim_delta' in stock_row and pd.notna(stock_row['rim_delta']) else 0
                 
                 # Use EPV if available, otherwise RIM
                 if epv_assessment != 'N/A':
