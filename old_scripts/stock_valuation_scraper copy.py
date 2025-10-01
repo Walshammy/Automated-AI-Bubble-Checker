@@ -14,15 +14,14 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
 import warnings
 import functools
-from typing import Dict, Optional, Tuple, List
-from tqdm import tqdm
+from typing import Dict, Optional, Tuple
 
 warnings.filterwarnings('ignore')
 
 # Configuration constants
 VALUATION_CONFIG = {
     'discount_rate': 0.08,
-    'perpetual_growth_rate': 0.02,  # Reduced from 0.025 to 0.02 (2%)
+    'perpetual_growth_rate': 0.025,
     'projection_years': 10,
     'default_fcf_growth': 0.08,  # More conservative than 0.15
     'max_fcf_growth': 0.15,     # Cap at 15%
@@ -33,18 +32,8 @@ VALUATION_CONFIG = {
         'FAIRLY_VALUED': 1.0,
         'OVERVALUED': 0.0
     },
-    'api_delay': 0.5,  # Increased from 0.2 to 0.5 (500ms)
-    'batch_size': 20,   # Process in batches
-    'batch_delay': 5.0,  # 5 second pause between batches
-    'max_terminal_value_ratio': 0.8,  # Terminal value shouldn't exceed 80% of total
-    
-    # Historical data collection settings
-    'historical_start_year': 2000,
-    'historical_batch_delay': 10.0,  # 10 seconds between batches for historical
-    'max_historical_period': '25y',  # Go back 25 years
-    'quarterly_data_enabled': True,
-    'historical_batch_size': 5,  # Smaller batches for historical data
-    'historical_checkpoint_interval': 10  # Save progress every 10 stocks
+    'api_delay': 0.2,  # 200ms delay between API calls
+    'max_terminal_value_ratio': 0.8  # Terminal value shouldn't exceed 80% of total
 }
 
 def rate_limit(delay=VALUATION_CONFIG['api_delay']):
@@ -63,11 +52,8 @@ class StockValuationScraper:
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
 
-        # OneDrive directory (primary storage location) - Use environment variable
-        self.onedrive_dir = os.path.join(
-            os.environ.get('ONEDRIVE', os.path.expanduser('~/OneDrive')),
-            'StockValuation'
-        )
+        # OneDrive directory (primary storage location)
+        self.onedrive_dir = r"C:\Users\james\OneDrive - Silverdale Medical Limited\StockValuation"
         os.makedirs(self.onedrive_dir, exist_ok=True)
 
         # Second storage location - Downloads/Stock Valuation
@@ -91,46 +77,6 @@ class StockValuationScraper:
         
         # Historical progress tracking
         self.historical_progress_file = os.path.join(self.onedrive_dir, "valuation_historical_progress.json")
-
-    def validate_financial_data(self, data: Dict, required_fields: List[str]) -> bool:
-        """Centralized validation for financial data"""
-        for field in required_fields:
-            value = data.get(field, 0)
-            if value is None or (isinstance(value, (int, float)) and value <= 0):
-                return False
-        return True
-
-    def is_market_open(self) -> bool:
-        """Check if NZX/ASX/NYSE is open"""
-        now = datetime.now()
-        # Simple implementation - can be enhanced with actual market hours
-        # For now, assume markets are open during business hours
-        weekday = now.weekday()  # 0 = Monday, 6 = Sunday
-        hour = now.hour
-        
-        # Basic check: Monday-Friday, 9 AM - 5 PM (can be enhanced)
-        return weekday < 5 and 9 <= hour <= 17
-
-    def get_data_staleness(self, timestamp: str) -> str:
-        """Get data staleness indicator"""
-        try:
-            age = datetime.now() - pd.to_datetime(timestamp)
-            if age.total_seconds() < 300:  # 5 min
-                return "🟢 Live"
-            elif age.total_seconds() < 3600:  # 1 hour
-                return "🟡 Recent"
-            else:
-                return "🔴 Stale"
-        except:
-            return "🔴 Unknown"
-
-    def check_valuation_consensus(self, lynch_delta, dcf_delta, munger_delta):
-        """Log when valuation methods disagree significantly"""
-        deltas = [d for d in [lynch_delta, dcf_delta, munger_delta] if d is not None]
-        if len(deltas) >= 2:
-            spread = max(deltas) - min(deltas)
-            if spread > 50:  # 50% disagreement
-                self.logger.warning(f"Large valuation spread: {spread:.1f}%")
 
         # Focus stocks for valuation analysis - Complete NZX + International
         self.focus_stocks = {
@@ -494,25 +440,22 @@ class StockValuationScraper:
                     'advanced_delta_percentage': None
                 }
             
-            # Calculate earnings growth rate - standardize on decimals internally
+            # Calculate earnings growth rate (keep as decimal, not percentage)
             if earnings_growth:
-                # Always store as decimals (0.10 = 10%)
-                eps_growth_rate = earnings_growth if earnings_growth <= 1 else earnings_growth / 100
+                eps_growth_rate = earnings_growth
             elif historical_data and historical_data.get('5_year_price_growth_rate'):
                 # Use historical price growth as proxy for earnings growth
-                historical_growth = historical_data['5_year_price_growth_rate']
-                eps_growth_rate = historical_growth if historical_growth <= 1 else historical_growth / 100
+                eps_growth_rate = historical_data['5_year_price_growth_rate']
             else:
                 # Conservative estimate
-                eps_growth_rate = 0.10  # 10% growth as decimal
+                eps_growth_rate = 0.10  # 10% growth
             
             # Keep as decimal for calculations, convert to percentage only for display
             eps_growth_rate_decimal = eps_growth_rate
             eps_growth_rate_percentage = eps_growth_rate * 100
             
             # Convert dividend yield from percentage to decimal for calculation
-            # Handle both percentage (>1) and decimal (<1) formats
-            dividend_yield_decimal = (dividend_yield / 100) if dividend_yield > 1 else dividend_yield
+            dividend_yield_decimal = dividend_yield / 100 if dividend_yield else 0
             
             # Basic Lynch Ratio Calculation with division by zero protection
             if pe_ratio and pe_ratio > 0:
@@ -522,8 +465,8 @@ class StockValuationScraper:
             else:
                 # If no P/E ratio or negative earnings, use sector-specific default
                 sector_defaults = {
-                    'Technology': 35, 'Healthcare': 22, 'Financial Services': 12,
-                    'Energy': 15, 'Utilities': 15, 'Consumer Staples': 18,
+                    'Technology': 25, 'Healthcare': 20, 'Financial Services': 12,
+                    'Energy': 15, 'Utilities': 18, 'Consumer Staples': 18,
                     'Real Estate': 15, 'Unknown': 15
                 }
                 default_pe = sector_defaults.get(sector, 15)
@@ -567,8 +510,8 @@ class StockValuationScraper:
             else:
                 # Use sector default for advanced calculation too
                 sector_defaults = {
-                    'Technology': 35, 'Healthcare': 22, 'Financial Services': 12,
-                    'Energy': 15, 'Utilities': 15, 'Consumer Staples': 18,
+                    'Technology': 25, 'Healthcare': 20, 'Financial Services': 12,
+                    'Energy': 15, 'Utilities': 18, 'Consumer Staples': 18,
                     'Real Estate': 15, 'Unknown': 15
                 }
                 default_pe = sector_defaults.get(sector, 15)
@@ -776,8 +719,16 @@ class StockValuationScraper:
             }
             
             # Calculate base growth rate with fade periods
-            # Use conservative default growth rate since historical data not available in this function
-            base_growth_rate = 0.05  # 5% as decimal
+            historical_growth = stock_data.get('free_cashflow_growth_rate', 0)
+            if historical_growth and historical_growth > 0:
+                adjusted_growth = min(historical_growth * 0.7, 0.12)  # Convert to decimal
+                if beta > 1.2:
+                    adjusted_growth *= 0.8
+                elif beta < 0.8:
+                    adjusted_growth *= 1.1
+                base_growth_rate = max(adjusted_growth, 0.02)  # Convert to decimal
+            else:
+                base_growth_rate = 0.05  # 5% as decimal
             
             scenario_values = {}
             
@@ -1097,8 +1048,8 @@ class StockValuationScraper:
             # Use binary search to find implied growth rate
             low_growth = 0.0
             high_growth = 0.5  # Cap at 50% growth
-            relative_tolerance = 0.01  # 1% relative accuracy (more reasonable)
-            max_iterations = 50
+            relative_tolerance = 0.001  # 0.1% relative accuracy
+            max_iterations = 100
             
             implied_growth = None
             
@@ -1147,16 +1098,41 @@ class StockValuationScraper:
             implied_growth_percentage = implied_growth * 100
             
             # Assess reasonableness
-            # Use conservative assessment since historical data not available in this function
-            assessment = "NO HISTORICAL GROWTH DATA AVAILABLE"
-            reasonable = True
+            historical_growth = stock_data.get('free_cashflow_growth_rate', 0)
+            if historical_growth:
+                historical_growth_percentage = historical_growth
+            else:
+                historical_growth_percentage = stock_data.get('avg_price_growth_rate', 0)
+            
+            # Determine if implied growth is reasonable
+            if historical_growth_percentage > 0:
+                growth_ratio = implied_growth_percentage / historical_growth_percentage
+                
+                if growth_ratio > 2.0:
+                    assessment = "MARKET EXPECTS EXCESSIVE GROWTH"
+                    reasonable = False
+                elif growth_ratio > 1.5:
+                    assessment = "MARKET EXPECTS HIGH GROWTH"
+                    reasonable = False
+                elif growth_ratio > 0.8:
+                    assessment = "MARKET EXPECTS REASONABLE GROWTH"
+                    reasonable = True
+                elif growth_ratio > 0.5:
+                    assessment = "MARKET EXPECTS LOW GROWTH"
+                    reasonable = True
+                else:
+                    assessment = "MARKET EXPECTS DECLINING GROWTH"
+                    reasonable = True
+            else:
+                assessment = "NO HISTORICAL GROWTH DATA"
+                reasonable = None
             
             return {
                 'reverse_dcf_implied_growth': implied_growth_percentage,
                 'reverse_dcf_assessment': assessment,
                 'reverse_dcf_reasonable': reasonable,
-                'reverse_dcf_historical_growth': None,  # Not available in this function
-                'reverse_dcf_growth_ratio': None,  # Not available in this function
+                'reverse_dcf_historical_growth': historical_growth_percentage,
+                'reverse_dcf_growth_ratio': growth_ratio if historical_growth_percentage > 0 else None,
                 'reverse_dcf_discount_rate': discount_rate
             }
             
@@ -1241,15 +1217,7 @@ class StockValuationScraper:
             if not book_value or book_value <= 0 or not shares_outstanding:
                 return {
                     'rim_intrinsic_value': None,
-                    'rim_assessment': 'N/A - Missing Book Value',
-                    'rim_delta': 0
-                }
-            
-            # Check if company is profitable (RIM doesn't work for unprofitable companies)
-            if net_income <= 0:
-                return {
-                    'rim_intrinsic_value': None,
-                    'rim_assessment': 'N/A - Company Unprofitable',
+                    'rim_assessment': 'N/A',
                     'rim_delta': 0
                 }
             
@@ -1502,12 +1470,6 @@ class StockValuationScraper:
                 'rim_current_roe': rim_valuation.get('rim_current_roe', 0)
             })
         
-        # Check for valuation consensus/disagreement
-        lynch_delta = valuation_data.get('lynch_delta_percentage', 0)
-        dcf_delta = valuation_data.get('dcf_delta_percentage', 0)
-        munger_delta = valuation_data.get('munger_7pct_delta_percentage', 0)
-        self.check_valuation_consensus(lynch_delta, dcf_delta, munger_delta)
-        
         self.logger.info(f"Collected {len(valuation_data)} valuation metrics for {ticker}")
         return valuation_data
 
@@ -1561,22 +1523,11 @@ class StockValuationScraper:
                 # Collect fresh valuation metrics for focus stocks
                 all_valuation_data = []
                 
-                # Process stocks in batches with progress indicator
-                stock_items = list(self.focus_stocks.items())
-                batch_size = VALUATION_CONFIG['batch_size']
-                
-                for i in tqdm(range(0, len(stock_items), batch_size), desc="Processing stock batches"):
-                    batch = stock_items[i:i + batch_size]
-                    
-                    for ticker, company_name in batch:
-                        self.logger.info(f"Analyzing {company_name} ({ticker})")
-                        valuation_data = self.collect_valuation_metrics(ticker)
-                        if valuation_data:
-                            all_valuation_data.append(valuation_data)
-                    
-                    # Add delay between batches
-                    if i + batch_size < len(stock_items):
-                        time.sleep(VALUATION_CONFIG['batch_delay'])
+                for ticker, company_name in self.focus_stocks.items():
+                    self.logger.info(f"Analyzing {company_name} ({ticker})")
+                    valuation_data = self.collect_valuation_metrics(ticker)
+                    if valuation_data:
+                        all_valuation_data.append(valuation_data)
                 
                 if all_valuation_data:
                     # Create DataFrame
@@ -1695,16 +1646,11 @@ class StockValuationScraper:
                     ws_data.cell(row=1, column=col, value=header)
                 next_row = 2
             
-            # Add new data to worksheet using chunked writing for better memory management
-            chunk_size = 100  # Process 100 rows at a time
-            for chunk_start in range(0, len(df), chunk_size):
-                chunk_end = min(chunk_start + chunk_size, len(df))
-                chunk_df = df.iloc[chunk_start:chunk_end]
-                
-                for _, row in chunk_df.iterrows():
-                    for col, value in enumerate(row, 1):
-                        ws_data.cell(row=next_row, column=col, value=value)
-                    next_row += 1
+            # Add new data to worksheet (skip header if not new sheet)
+            for _, row in df.iterrows():
+                for col, value in enumerate(row, 1):
+                    ws_data.cell(row=next_row, column=col, value=value)
+                next_row += 1
             
             # Auto-adjust column widths for Valuation Data sheet
             for column in ws_data.columns:
@@ -1745,18 +1691,18 @@ class StockValuationScraper:
             border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                           top=Side(style='thin'), bottom=Side(style='thin'))
             
-            # Improved conditional formatting fills with better contrast
-            strong_buy_fill = PatternFill(start_color="228B22", end_color="228B22", fill_type="solid")  # Forest Green
-            buy_fill = PatternFill(start_color="32CD32", end_color="32CD32", fill_type="solid")  # Lime Green
-            hold_fill = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")  # Gold
-            sell_fill = PatternFill(start_color="FF6347", end_color="FF6347", fill_type="solid")  # Tomato
-            strong_sell_fill = PatternFill(start_color="DC143C", end_color="DC143C", fill_type="solid")  # Crimson
-            no_data_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")  # Light Gray
+            # Consistent conditional formatting fills (matching Prospects sheet)
+            strong_buy_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+            buy_fill = PatternFill(start_color="98FB98", end_color="98FB98", fill_type="solid")
+            hold_fill = PatternFill(start_color="FFFFE0", end_color="FFFFE0", fill_type="solid")
+            sell_fill = PatternFill(start_color="FFB6C1", end_color="FFB6C1", fill_type="solid")
+            strong_sell_fill = PatternFill(start_color="FFA0A0", end_color="FFA0A0", fill_type="solid")
+            no_data_fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")
             
             row = 1
             
             # Title
-            ws_summary[f'A{row}'] = "My Portfolio - All Holdings Analysis"
+            ws_summary[f'A{row}'] = "Stock Valuation Analysis Dashboard"
             ws_summary[f'A{row}'].font = Font(bold=True, size=16)
             ws_summary[f'A{row}'].alignment = Alignment(horizontal='center', vertical='center')
             ws_summary.merge_cells(f'A{row}:I{row}')
@@ -2402,16 +2348,16 @@ class StockValuationScraper:
             border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                           top=Side(style='thin'), bottom=Side(style='thin'))
             
-            # Improved conditional formatting fills with better contrast
-            strong_buy_fill = PatternFill(start_color="228B22", end_color="228B22", fill_type="solid")  # Forest Green
-            buy_fill = PatternFill(start_color="32CD32", end_color="32CD32", fill_type="solid")  # Lime Green
-            hold_fill = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")  # Gold
-            sell_fill = PatternFill(start_color="FF6347", end_color="FF6347", fill_type="solid")  # Tomato
-            strong_sell_fill = PatternFill(start_color="DC143C", end_color="DC143C", fill_type="solid")  # Crimson
-            no_data_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")  # Light Gray
+            # Consistent conditional formatting fills
+            strong_buy_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+            buy_fill = PatternFill(start_color="98FB98", end_color="98FB98", fill_type="solid")
+            hold_fill = PatternFill(start_color="FFFFE0", end_color="FFFFE0", fill_type="solid")
+            sell_fill = PatternFill(start_color="FFB6C1", end_color="FFB6C1", fill_type="solid")
+            strong_sell_fill = PatternFill(start_color="FFA0A0", end_color="FFA0A0", fill_type="solid")
+            no_data_fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")
             
             # Title
-            ws_prospects['A1'] = "NZX PROSPECTS - UNDERVALUED STOCKS ONLY (Δ > 10%)"
+            ws_prospects['A1'] = "NZX PROSPECTS - RANKED BY UNDERVALUATION"
             ws_prospects['A1'].font = header_font
             ws_prospects['A1'].fill = header_fill
             ws_prospects['A1'].border = border
@@ -2493,11 +2439,8 @@ class StockValuationScraper:
             stocks_complete.sort(key=lambda x: x['undervaluation_score'], reverse=True)
             stocks_partial.sort(key=lambda x: x['undervaluation_score'], reverse=True)
             
-            # Add stocks with complete data first (ranked by undervaluation) - Only show undervalued stocks (delta > 10%)
+            # Add stocks with complete data first (ranked by undervaluation)
             for stock_row in stocks_complete:
-                # Only include stocks with significant undervaluation
-                if stock_row['undervaluation_score'] <= 10:  # Skip stocks with <= 10% undervaluation
-                    continue
                 ticker = stock_row['ticker']
                 company_name = stock_row['company_name']
                 current_price = stock_row['current_price']
