@@ -1737,12 +1737,15 @@ class StockValuationScraper:
                 cell.border = border
             row += 1
             
+            # Get latest data for each ticker to avoid duplicates
+            latest_data = df.sort_values('timestamp').groupby('ticker').last().reset_index()
+            
             # Separate stocks by completeness - most complete at top
             stocks_complete = []      # All 3 valuation methods
             stocks_partial = []       # 1-2 valuation methods
             stocks_without_data = []  # No valuation methods
             
-            for _, stock_row in df.iterrows():
+            for _, stock_row in latest_data.iterrows():
                 lynch_status = stock_row['lynch_valuation_status'] if 'lynch_valuation_status' in stock_row and pd.notna(stock_row['lynch_valuation_status']) else 'N/A'
                 dcf_status = stock_row['dcf_valuation_status'] if 'dcf_valuation_status' in stock_row and pd.notna(stock_row['dcf_valuation_status']) else 'N/A'
                 munger_assessment = stock_row['munger_7pct_assessment'] if 'munger_7pct_assessment' in stock_row and pd.notna(stock_row['munger_7pct_assessment']) else 'N/A'
@@ -2399,12 +2402,15 @@ class StockValuationScraper:
                 
                 return score / count if count > 0 else -999  # -999 for insufficient data
             
+            # Get latest data for each ticker to avoid duplicates
+            latest_data = df.sort_values('timestamp').groupby('ticker').last().reset_index()
+            
             # Separate stocks by completeness and rank by undervaluation
             stocks_complete = []
             stocks_partial = []
             stocks_without_data = []
             
-            for _, stock_row in df.iterrows():
+            for _, stock_row in latest_data.iterrows():
                 lynch_status = stock_row['lynch_valuation_status'] if 'lynch_valuation_status' in stock_row and pd.notna(stock_row['lynch_valuation_status']) else 'N/A'
                 dcf_status = stock_row['dcf_valuation_status'] if 'dcf_valuation_status' in stock_row and pd.notna(stock_row['dcf_valuation_status']) else 'N/A'
                 munger_assessment = stock_row['munger_7pct_assessment'] if 'munger_7pct_assessment' in stock_row and pd.notna(stock_row['munger_7pct_assessment']) else 'N/A'
