@@ -899,8 +899,8 @@ def main():
             session_count += 1
             print(f"\n--- SESSION {session_count} ---")
             
-            # Run collection session targeting 5% completion
-            price_records, fundamental_records, errors = collector.run_improved_collection(target_percentage=5.0)
+            # Run collection session targeting 100% completion (progressive)
+            price_records, fundamental_records, errors = collector.run_improved_collection(target_percentage=100.0)
             
             total_price_records += price_records
             total_fundamental_records += fundamental_records
