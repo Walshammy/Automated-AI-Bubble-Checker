@@ -95,7 +95,7 @@ class ImprovedDataCollector:
         self.max_delay = 10.0  # Maximum delay
         self.backoff_multiplier = 1.5  # Exponential backoff multiplier
         self.max_retries = 5
-        self.batch_size = 5  # Smaller batches for better rate limiting
+        self.batch_size = 10  # Larger batches for faster progress
         self.max_workers = 1  # Start conservative, increase gradually
         
         # Rate limiting state
@@ -885,10 +885,10 @@ def main():
     print(f"Architecture: Separated historical prices from current fundamentals")
     print(f"Rate Limiting: Adaptive with exponential backoff")
     print(f"Memory Management: Streaming data insertion")
-    print(f"Target: 5% of database population")
+    print(f"Target: 100% of database population (progressive)")
     print("="*100)
     
-    # Run continuous collection until 5% completion
+    # Run continuous collection until 100% completion
     total_price_records = 0
     total_fundamental_records = 0
     total_errors = 0
@@ -906,27 +906,27 @@ def main():
             total_fundamental_records += fundamental_records
             total_errors += errors
             
-            # Check if target reached
+            # Check progress towards 100%
             completed_count = len(collector.progress['completed_tickers'])
             failed_count = len(collector.progress['failed_tickers'])
             total_stocks = len(collector.stock_universe)
-            target_stocks = int(total_stocks * 0.05)  # 5%
             completion_pct = (completed_count / total_stocks) * 100
             
             print(f"\nSession {session_count} Results:")
             print(f"Price records: {price_records:,}")
             print(f"Fundamental records: {fundamental_records:,}")
             print(f"Errors: {errors}")
-            print(f"Progress: {completed_count}/{target_stocks} stocks ({completion_pct:.2f}%)")
+            print(f"Progress: {completed_count}/{total_stocks} stocks ({completion_pct:.2f}%)")
             print(f"Failed stocks: {failed_count}")
             
-            if completed_count >= target_stocks:
-                print(f"\nTARGET REACHED! Completed {completion_pct:.2f}% of database population")
+            # Check if 100% reached
+            if completed_count >= total_stocks:
+                print(f"\n100% COMPLETE! All stocks processed!")
                 break
             
             # Check if no more stocks available
             if price_records == 0 and fundamental_records == 0 and errors == 0:
-                print(f"\nNo more stocks available to process. Target may not be reachable.")
+                print(f"\nNo more stocks available to process. Collection complete!")
                 break
             
             # Brief pause between sessions
