@@ -710,14 +710,32 @@ class ImprovedDataCollector:
             
             return 0, 0, True, error_msg
     
-    def run_improved_collection(self, max_tickers: int = None):
+    def run_improved_collection(self, max_tickers: int = None, target_percentage: float = None):
         """Run improved data collection session"""
         session_start = datetime.now()
         self.stats['start_time'] = session_start
         
-        # Get pending tickers
+        # Get pending tickers (exclude both completed and failed)
         pending_tickers = [t for t in self.stock_universe.keys() 
-                          if t not in self.progress['completed_tickers']]
+                          if t not in self.progress['completed_tickers'] and t not in self.progress['failed_tickers']]
+        
+        # Calculate target based on percentage if specified
+        if target_percentage:
+            total_stocks = len(self.stock_universe)
+            target_stocks = int(total_stocks * (target_percentage / 100))
+            completed_count = len(self.progress['completed_tickers'])
+            
+            if completed_count >= target_stocks:
+                self.logger.info(f"Target of {target_percentage}% already reached! ({completed_count}/{target_stocks} stocks)")
+                return 0, 0, 0
+            
+            remaining_needed = target_stocks - completed_count
+            if len(pending_tickers) == 0:
+                self.logger.info(f"No more pending stocks available. Target may not be reachable due to delisted stocks.")
+                return 0, 0, 0
+            
+            pending_tickers = pending_tickers[:remaining_needed]
+            self.logger.info(f"Target: {target_percentage}% ({target_stocks} stocks) - Need {remaining_needed} more stocks from {len(pending_tickers)} available")
         
         if max_tickers:
             pending_tickers = pending_tickers[:max_tickers]
@@ -860,30 +878,79 @@ def main():
     collector = ImprovedDataCollector()
     
     print("="*100)
-    print("IMPROVED COMPREHENSIVE DATA COLLECTOR")
+    print("IMPROVED COMPREHENSIVE DATA COLLECTOR - CONTINUOUS MODE")
     print("="*100)
     print(f"Stock Universe: {len(collector.stock_universe)} stocks")
     print(f"Exchanges: US, ASX, NZX")
     print(f"Architecture: Separated historical prices from current fundamentals")
     print(f"Rate Limiting: Adaptive with exponential backoff")
     print(f"Memory Management: Streaming data insertion")
+    print(f"Target: 5% of database population")
     print("="*100)
     
-    # Run collection session (limit to 5 stocks for testing)
-    price_records, fundamental_records, errors = collector.run_improved_collection(max_tickers=5)
+    # Run continuous collection until 5% completion
+    total_price_records = 0
+    total_fundamental_records = 0
+    total_errors = 0
+    session_count = 0
     
-    # Print summary
+    try:
+        while True:
+            session_count += 1
+            print(f"\n--- SESSION {session_count} ---")
+            
+            # Run collection session targeting 5% completion
+            price_records, fundamental_records, errors = collector.run_improved_collection(target_percentage=5.0)
+            
+            total_price_records += price_records
+            total_fundamental_records += fundamental_records
+            total_errors += errors
+            
+            # Check if target reached
+            completed_count = len(collector.progress['completed_tickers'])
+            failed_count = len(collector.progress['failed_tickers'])
+            total_stocks = len(collector.stock_universe)
+            target_stocks = int(total_stocks * 0.05)  # 5%
+            completion_pct = (completed_count / total_stocks) * 100
+            
+            print(f"\nSession {session_count} Results:")
+            print(f"Price records: {price_records:,}")
+            print(f"Fundamental records: {fundamental_records:,}")
+            print(f"Errors: {errors}")
+            print(f"Progress: {completed_count}/{target_stocks} stocks ({completion_pct:.2f}%)")
+            print(f"Failed stocks: {failed_count}")
+            
+            if completed_count >= target_stocks:
+                print(f"\nTARGET REACHED! Completed {completion_pct:.2f}% of database population")
+                break
+            
+            # Check if no more stocks available
+            if price_records == 0 and fundamental_records == 0 and errors == 0:
+                print(f"\nNo more stocks available to process. Target may not be reachable.")
+                break
+            
+            # Brief pause between sessions
+            print(f"Continuing to next session in 2 seconds...")
+            import time
+            time.sleep(2)
+    
+    except KeyboardInterrupt:
+        print(f"\nCollection interrupted by user")
+    
+    # Final summary
     collector.print_progress_summary()
     
-    print(f"\nCollection session complete!")
-    print(f"Price records collected: {price_records:,}")
-    print(f"Fundamental records collected: {fundamental_records:,}")
-    print(f"Errors: {errors}")
+    print(f"\n" + "="*100)
+    print(f"CONTINUOUS COLLECTION COMPLETE!")
+    print(f"="*100)
+    print(f"Total Sessions: {session_count}")
+    print(f"Total Price Records: {total_price_records:,}")
+    print(f"Total Fundamental Records: {total_fundamental_records:,}")
+    print(f"Total Errors: {total_errors}")
+    print(f"Final Progress: {len(collector.progress['completed_tickers'])}/{len(collector.stock_universe)} stocks")
     print(f"Database: {collector.db_path}")
     print(f"Progress file: {collector.progress_file}")
-    
-    print(f"\nTo continue collection, run this script again.")
-    print(f"It will automatically resume from where it left off.")
+    print(f"="*100)
 
 if __name__ == "__main__":
     main()
