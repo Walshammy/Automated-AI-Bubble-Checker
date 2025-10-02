@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+"""
+Unified Historical Data Collector
+Comprehensive historical data collection for US, ASX, and NZX stocks going back to 2000
+Optimized for rate limiting and efficient data collection
+"""
+
 import pandas as pd
 import numpy as np
 import yfinance as yf
@@ -11,6 +18,8 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 import json
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 warnings.filterwarnings('ignore')
 
@@ -45,14 +54,15 @@ class HistoricalDataPoint:
     beta: float
     sector: str
     industry: str
+    exchange: str
     is_delisted: bool
     delisted_date: Optional[date]
     created_at: datetime
 
-class ComprehensiveNZXASXCollector:
-    """Comprehensive collector for all NZX and ASX stocks with aggressive rate limiting"""
+class UnifiedHistoricalCollector:
+    """Unified historical data collector for US, ASX, and NZX markets"""
     
-    def __init__(self, db_path: str = "nzx_asx_historical_data.db"):
+    def __init__(self, db_path: str = "unified_historical_data.db"):
         # Setup logging
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
@@ -61,19 +71,20 @@ class ComprehensiveNZXASXCollector:
         self.db_path = db_path
         self.init_database()
         
-        # Load stock universe from Excel file
+        # Load comprehensive stock universe
         self.load_stock_universe()
         
-        # Collection settings (very conservative to avoid rate limiting)
+        # Collection settings optimized for rate limiting
         self.start_date = date(2000, 1, 1)
         self.end_date = date.today()
-        self.min_delay = 5  # Minimum 5 seconds between requests
-        self.max_delay = 12  # Maximum 12 seconds between requests
+        self.min_delay = 3  # Minimum 3 seconds between requests
+        self.max_delay = 8  # Maximum 8 seconds between requests
         self.max_retries = 3
-        self.batch_size = 3  # Process only 3 tickers at a time
+        self.batch_size = 5  # Process 5 tickers at a time
+        self.max_workers = 2  # Limit concurrent requests
         
         # Progress tracking
-        self.progress_file = "nzx_asx_collection_progress.json"
+        self.progress_file = "unified_collection_progress.json"
         self.load_progress()
         
         # Statistics
@@ -85,6 +96,9 @@ class ComprehensiveNZXASXCollector:
             'start_time': None,
             'last_update': None
         }
+        
+        # Thread safety
+        self.lock = threading.Lock()
         
     def init_database(self):
         """Initialize optimized SQLite database"""
@@ -124,6 +138,7 @@ class ComprehensiveNZXASXCollector:
                     beta REAL,
                     sector TEXT,
                     industry TEXT,
+                    exchange TEXT,
                     is_delisted BOOLEAN DEFAULT 0,
                     delisted_date DATE,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -131,10 +146,12 @@ class ComprehensiveNZXASXCollector:
                 )
             ''')
             
-            # Create indexes
+            # Create indexes for performance
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_ticker_date ON historical_data(ticker, date)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_date ON historical_data(date)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_ticker ON historical_data(ticker)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_exchange ON historical_data(exchange)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_sector ON historical_data(sector)')
             
             # Create progress tracking table
             cursor.execute('''
@@ -147,6 +164,7 @@ class ComprehensiveNZXASXCollector:
                     last_error TEXT,
                     is_delisted BOOLEAN DEFAULT 0,
                     delisted_date DATE,
+                    exchange TEXT,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -175,7 +193,7 @@ class ComprehensiveNZXASXCollector:
             raise
     
     def load_stock_universe(self):
-        """Load stock universe from NZX_ASX.xlsx file"""
+        """Load comprehensive stock universe from Excel file and add US stocks"""
         try:
             # Load NZX stocks (Sheet1)
             nzx_df = pd.read_excel('NZX_ASX.xlsx', sheet_name='Sheet1')
@@ -184,10 +202,14 @@ class ComprehensiveNZXASXCollector:
             for _, row in nzx_df.iterrows():
                 code = str(row['Code']).strip()
                 company = str(row['Company']).strip()
-                if code and company and code != 'nan':
-                    # Add .NZ suffix for NZX stocks
+                if code and company and code != 'nan' and code != 'Code':
                     ticker = f"{code}.NZ"
-                    nzx_stocks[ticker] = company
+                    nzx_stocks[ticker] = {
+                        'company': company,
+                        'exchange': 'NZX',
+                        'code': code,
+                        'market_cap': row.get('Capitalisation', None)
+                    }
             
             # Load ASX stocks (Sheet3)
             asx_df = pd.read_excel('NZX_ASX.xlsx', sheet_name='Sheet3')
@@ -196,15 +218,97 @@ class ComprehensiveNZXASXCollector:
             for _, row in asx_df.iterrows():
                 code = str(row['Code']).strip()
                 company = str(row['Company']).strip()
-                if code and company and code != 'nan':
-                    # Add .AX suffix for ASX stocks
+                if code and company and code != 'nan' and code != 'Code':
                     ticker = f"{code}.AX"
-                    asx_stocks[ticker] = company
+                    asx_stocks[ticker] = {
+                        'company': company,
+                        'exchange': 'ASX',
+                        'code': code,
+                        'sector': row.get('Sector', None),
+                        'market_cap': row.get('Mkt Cap', None)
+                    }
+            
+            # Add comprehensive US stock universe
+            us_stocks = {
+                # Major US Stocks
+                'AAPL': {'company': 'Apple Inc.', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'MSFT': {'company': 'Microsoft Corporation', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'GOOGL': {'company': 'Alphabet Inc.', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'AMZN': {'company': 'Amazon.com Inc.', 'exchange': 'NASDAQ', 'sector': 'Consumer'},
+                'TSLA': {'company': 'Tesla Inc.', 'exchange': 'NASDAQ', 'sector': 'Automotive'},
+                'NVDA': {'company': 'NVIDIA Corporation', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'META': {'company': 'Meta Platforms Inc.', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'BRK-B': {'company': 'Berkshire Hathaway Class B', 'exchange': 'NYSE', 'sector': 'Financial'},
+                'JNJ': {'company': 'Johnson & Johnson', 'exchange': 'NYSE', 'sector': 'Healthcare'},
+                'PG': {'company': 'Procter & Gamble Company', 'exchange': 'NYSE', 'sector': 'Consumer'},
+                'KO': {'company': 'Coca-Cola Company', 'exchange': 'NYSE', 'sector': 'Consumer'},
+                'PEP': {'company': 'PepsiCo Inc.', 'exchange': 'NASDAQ', 'sector': 'Consumer'},
+                'WMT': {'company': 'Walmart Inc.', 'exchange': 'NYSE', 'sector': 'Consumer'},
+                'HD': {'company': 'Home Depot Inc.', 'exchange': 'NYSE', 'sector': 'Consumer'},
+                'JPM': {'company': 'JPMorgan Chase & Co.', 'exchange': 'NYSE', 'sector': 'Financial'},
+                'BAC': {'company': 'Bank of America Corporation', 'exchange': 'NYSE', 'sector': 'Financial'},
+                'WFC': {'company': 'Wells Fargo & Company', 'exchange': 'NYSE', 'sector': 'Financial'},
+                'CVX': {'company': 'Chevron Corporation', 'exchange': 'NYSE', 'sector': 'Energy'},
+                'XOM': {'company': 'Exxon Mobil Corporation', 'exchange': 'NYSE', 'sector': 'Energy'},
+                'IBM': {'company': 'International Business Machines Corporation', 'exchange': 'NYSE', 'sector': 'Technology'},
+                'INTC': {'company': 'Intel Corporation', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'CSCO': {'company': 'Cisco Systems Inc.', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'ORCL': {'company': 'Oracle Corporation', 'exchange': 'NYSE', 'sector': 'Technology'},
+                'ADBE': {'company': 'Adobe Inc.', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'NFLX': {'company': 'Netflix Inc.', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'CRM': {'company': 'Salesforce Inc.', 'exchange': 'NYSE', 'sector': 'Technology'},
+                'DIS': {'company': 'The Walt Disney Company', 'exchange': 'NYSE', 'sector': 'Consumer'},
+                'MCD': {'company': 'McDonald\'s Corporation', 'exchange': 'NYSE', 'sector': 'Consumer'},
+                'NKE': {'company': 'Nike Inc.', 'exchange': 'NYSE', 'sector': 'Consumer'},
+                'BA': {'company': 'The Boeing Company', 'exchange': 'NYSE', 'sector': 'Industrial'},
+                'CAT': {'company': 'Caterpillar Inc.', 'exchange': 'NYSE', 'sector': 'Industrial'},
+                'GE': {'company': 'General Electric Company', 'exchange': 'NYSE', 'sector': 'Industrial'},
+                'F': {'company': 'Ford Motor Company', 'exchange': 'NYSE', 'sector': 'Automotive'},
+                'T': {'company': 'AT&T Inc.', 'exchange': 'NYSE', 'sector': 'Communication'},
+                'VZ': {'company': 'Verizon Communications Inc.', 'exchange': 'NYSE', 'sector': 'Communication'},
+                'MMM': {'company': '3M Company', 'exchange': 'NYSE', 'sector': 'Industrial'},
+                'RTX': {'company': 'Raytheon Technologies Corporation', 'exchange': 'NYSE', 'sector': 'Aerospace'},
+                'ABBV': {'company': 'AbbVie Inc.', 'exchange': 'NYSE', 'sector': 'Healthcare'},
+                'ACN': {'company': 'Accenture plc', 'exchange': 'NYSE', 'sector': 'Technology'},
+                'AMGN': {'company': 'Amgen Inc.', 'exchange': 'NASDAQ', 'sector': 'Healthcare'},
+                'AVGO': {'company': 'Broadcom Inc.', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'BABA': {'company': 'Alibaba Group Holding Limited', 'exchange': 'NYSE', 'sector': 'Technology'},
+                'BKNG': {'company': 'Booking Holdings Inc.', 'exchange': 'NASDAQ', 'sector': 'Consumer'},
+                'COST': {'company': 'Costco Wholesale Corporation', 'exchange': 'NASDAQ', 'sector': 'Consumer'},
+                'CRM': {'company': 'Salesforce Inc.', 'exchange': 'NYSE', 'sector': 'Technology'},
+                'DHR': {'company': 'Danaher Corporation', 'exchange': 'NYSE', 'sector': 'Healthcare'},
+                'GOOG': {'company': 'Alphabet Inc. Class C', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'HON': {'company': 'Honeywell International Inc.', 'exchange': 'NASDAQ', 'sector': 'Industrial'},
+                'ISRG': {'company': 'Intuitive Surgical Inc.', 'exchange': 'NASDAQ', 'sector': 'Healthcare'},
+                'LIN': {'company': 'Linde plc', 'exchange': 'NYSE', 'sector': 'Materials'},
+                'LLY': {'company': 'Eli Lilly and Company', 'exchange': 'NYSE', 'sector': 'Healthcare'},
+                'MA': {'company': 'Mastercard Incorporated', 'exchange': 'NYSE', 'sector': 'Financial'},
+                'MRNA': {'company': 'Moderna Inc.', 'exchange': 'NASDAQ', 'sector': 'Healthcare'},
+                'MRK': {'company': 'Merck & Co. Inc.', 'exchange': 'NYSE', 'sector': 'Healthcare'},
+                'NEE': {'company': 'NextEra Energy Inc.', 'exchange': 'NYSE', 'sector': 'Utilities'},
+                'NFLX': {'company': 'Netflix Inc.', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'NVO': {'company': 'Novo Nordisk A/S', 'exchange': 'NYSE', 'sector': 'Healthcare'},
+                'NVS': {'company': 'Novartis AG', 'exchange': 'NYSE', 'sector': 'Healthcare'},
+                'PFE': {'company': 'Pfizer Inc.', 'exchange': 'NYSE', 'sector': 'Healthcare'},
+                'PYPL': {'company': 'PayPal Holdings Inc.', 'exchange': 'NASDAQ', 'sector': 'Financial'},
+                'QCOM': {'company': 'QUALCOMM Incorporated', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'SAP': {'company': 'SAP SE', 'exchange': 'NYSE', 'sector': 'Technology'},
+                'SHOP': {'company': 'Shopify Inc.', 'exchange': 'NYSE', 'sector': 'Technology'},
+                'SNY': {'company': 'Sanofi', 'exchange': 'NYSE', 'sector': 'Healthcare'},
+                'TM': {'company': 'Toyota Motor Corporation', 'exchange': 'NYSE', 'sector': 'Automotive'},
+                'TSM': {'company': 'Taiwan Semiconductor Manufacturing Company Limited', 'exchange': 'NYSE', 'sector': 'Technology'},
+                'UL': {'company': 'Unilever PLC', 'exchange': 'NYSE', 'sector': 'Consumer'},
+                'UNH': {'company': 'UnitedHealth Group Incorporated', 'exchange': 'NYSE', 'sector': 'Healthcare'},
+                'V': {'company': 'Visa Inc.', 'exchange': 'NYSE', 'sector': 'Financial'},
+                'WMT': {'company': 'Walmart Inc.', 'exchange': 'NYSE', 'sector': 'Consumer'},
+                'XOM': {'company': 'Exxon Mobil Corporation', 'exchange': 'NYSE', 'sector': 'Energy'},
+                'ZM': {'company': 'Zoom Video Communications Inc.', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+            }
             
             # Combine all stocks
-            self.stock_universe = {**nzx_stocks, **asx_stocks}
+            self.stock_universe = {**nzx_stocks, **asx_stocks, **us_stocks}
             
-            self.logger.info(f"Loaded stock universe: {len(nzx_stocks)} NZX stocks, {len(asx_stocks)} ASX stocks")
+            self.logger.info(f"Loaded stock universe: {len(nzx_stocks)} NZX, {len(asx_stocks)} ASX, {len(us_stocks)} US stocks")
             self.logger.info(f"Total stocks: {len(self.stock_universe)}")
             
         except Exception as e:
@@ -245,14 +349,25 @@ class ComprehensiveNZXASXCollector:
             self.logger.error(f"Error saving progress: {e}")
     
     def get_sector(self, ticker: str) -> str:
-        """Determine sector based on ticker"""
-        # This is a simplified sector mapping - in practice you'd want more comprehensive data
+        """Determine sector based on ticker and metadata"""
+        metadata = self.stock_universe.get(ticker, {})
+        
+        # Use sector from metadata if available
+        if metadata.get('sector'):
+            return metadata['sector']
+        
+        # Fallback to exchange-based classification
         if '.NZ' in ticker:
             return 'NZX'
         elif '.AX' in ticker:
             return 'ASX'
         else:
-            return 'Unknown'
+            return 'US'
+    
+    def get_exchange(self, ticker: str) -> str:
+        """Get exchange for ticker"""
+        metadata = self.stock_universe.get(ticker, {})
+        return metadata.get('exchange', 'Unknown')
     
     def safe_get(self, data: dict, key: str, default: float = 0.0) -> float:
         """Safely extract numeric values from data"""
@@ -287,7 +402,6 @@ class ComprehensiveNZXASXCollector:
                 is_delisted = True
                 delisted_date = pd.to_datetime(info['delistedDate']).date()
             elif 'regularMarketPrice' not in info or info.get('regularMarketPrice') is None:
-                # Check if we can get recent data
                 try:
                     recent_data = stock.history(period="1mo")
                     if recent_data.empty:
@@ -298,7 +412,7 @@ class ComprehensiveNZXASXCollector:
             # Get historical price data with multiple fallback strategies
             historical_data = None
             
-            # Strategy 1: Try weekly data first
+            # Strategy 1: Try weekly data first (most efficient)
             try:
                 historical_data = stock.history(start=self.start_date, end=self.end_date, interval="1wk")
                 if not historical_data.empty:
@@ -389,6 +503,7 @@ class ComprehensiveNZXASXCollector:
                         beta=self.safe_get(info, 'beta', 1.0),
                         sector=self.get_sector(ticker),
                         industry=info.get('industry', 'Unknown'),
+                        exchange=self.get_exchange(ticker),
                         is_delisted=is_delisted,
                         delisted_date=delisted_date,
                         created_at=datetime.now()
@@ -425,7 +540,7 @@ class ComprehensiveNZXASXCollector:
                         dp.roe, dp.debt_to_equity, dp.current_ratio, dp.fcf_yield,
                         dp.eps_ttm, dp.eps_growth_5y, dp.revenue_growth_5y, dp.roa,
                         dp.roic, dp.gross_margin, dp.operating_margin, dp.net_margin,
-                        dp.beta, dp.sector, dp.industry, dp.is_delisted, dp.delisted_date
+                        dp.beta, dp.sector, dp.industry, dp.exchange, dp.is_delisted, dp.delisted_date
                     ))
                 
                 # Bulk insert
@@ -436,20 +551,21 @@ class ComprehensiveNZXASXCollector:
                         dividend_yield, roe, debt_to_equity, current_ratio, fcf_yield,
                         eps_ttm, eps_growth_5y, revenue_growth_5y, roa, roic,
                         gross_margin, operating_margin, net_margin, beta, sector,
-                        industry, is_delisted, delisted_date
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        industry, exchange, is_delisted, delisted_date
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', data_to_insert)
             
             # Update progress
             cursor.execute('''
                 INSERT OR REPLACE INTO collection_progress (
                     ticker, status, last_attempt, attempts, records_collected,
-                    last_error, is_delisted, delisted_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    last_error, is_delisted, delisted_date, exchange
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 ticker, status, datetime.now(), 1, len(data_points),
                 error_msg, data_points[0].is_delisted if data_points else False,
-                data_points[0].delisted_date if data_points else None
+                data_points[0].delisted_date if data_points else None,
+                data_points[0].exchange if data_points else self.get_exchange(ticker)
             ))
             
             conn.commit()
@@ -467,28 +583,14 @@ class ComprehensiveNZXASXCollector:
         self.logger.info(f"Rate limiting: waiting {delay:.1f} seconds...")
         time.sleep(delay)
     
-    def run_collection_session(self, max_tickers: int = None):
-        """Run a collection session with smart rate limiting"""
-        session_start = datetime.now()
-        self.stats['start_time'] = session_start
+    def process_ticker_batch(self, ticker_batch: List[str]) -> Tuple[int, int]:
+        """Process a batch of tickers"""
+        batch_records = 0
+        batch_errors = 0
         
-        # Get pending tickers
-        pending_tickers = [t for t in self.stock_universe.keys() 
-                          if t not in self.progress['completed_tickers']]
-        
-        if max_tickers:
-            pending_tickers = pending_tickers[:max_tickers]
-        
-        self.logger.info(f"Starting NZX/ASX collection session for {len(pending_tickers)} tickers")
-        self.logger.info(f"Rate limiting: {self.min_delay}-{self.max_delay} seconds between requests")
-        self.logger.info(f"Batch size: {self.batch_size} tickers per session")
-        
-        session_records = 0
-        session_errors = 0
-        
-        for i, ticker in enumerate(pending_tickers):
+        for ticker in ticker_batch:
             try:
-                self.logger.info(f"Processing {ticker} ({i+1}/{len(pending_tickers)}) - {self.stock_universe[ticker]}")
+                self.logger.info(f"Processing {ticker} - {self.stock_universe.get(ticker, {}).get('company', ticker)}")
                 
                 # Collect data
                 data_points, is_delisted, error_msg = self.collect_ticker_data(ticker)
@@ -499,34 +601,88 @@ class ComprehensiveNZXASXCollector:
                                                     error_msg)
                 
                 # Update statistics
-                if data_points:
-                    self.progress['completed_tickers'].append(ticker)
-                    session_records += records_saved
-                    self.stats['successful'] += 1
-                    self.stats['total_records'] += records_saved
-                    self.logger.info(f"✓ {ticker}: {records_saved} records saved")
-                else:
-                    self.progress['failed_tickers'].append(ticker)
-                    session_errors += 1
-                    self.stats['failed'] += 1
-                    self.logger.warning(f"✗ {ticker}: {error_msg}")
+                with self.lock:
+                    if data_points:
+                        self.progress['completed_tickers'].append(ticker)
+                        batch_records += records_saved
+                        self.stats['successful'] += 1
+                        self.stats['total_records'] += records_saved
+                        self.logger.info(f"✓ {ticker}: {records_saved} records saved")
+                    else:
+                        self.progress['failed_tickers'].append(ticker)
+                        batch_errors += 1
+                        self.stats['failed'] += 1
+                        self.logger.warning(f"✗ {ticker}: {error_msg}")
+                    
+                    self.stats['total_processed'] += 1
+                    self.stats['last_update'] = datetime.now()
                 
-                self.stats['total_processed'] += 1
-                self.stats['last_update'] = datetime.now()
-                
-                # Save progress
-                self.save_progress()
-                
-                # Smart delay (except for last ticker)
-                if i < len(pending_tickers) - 1:
-                    self.smart_delay()
+                # Smart delay between tickers
+                self.smart_delay()
                 
             except Exception as e:
                 self.logger.error(f"Unexpected error processing {ticker}: {e}")
-                self.progress['failed_tickers'].append(ticker)
-                session_errors += 1
-                self.stats['failed'] += 1
-                self.stats['total_processed'] += 1
+                with self.lock:
+                    self.progress['failed_tickers'].append(ticker)
+                    batch_errors += 1
+                    self.stats['failed'] += 1
+                    self.stats['total_processed'] += 1
+        
+        return batch_records, batch_errors
+    
+    def run_collection_session(self, max_tickers: int = None):
+        """Run a collection session with optimized rate limiting"""
+        session_start = datetime.now()
+        self.stats['start_time'] = session_start
+        
+        # Get pending tickers
+        pending_tickers = [t for t in self.stock_universe.keys() 
+                          if t not in self.progress['completed_tickers']]
+        
+        if max_tickers:
+            pending_tickers = pending_tickers[:max_tickers]
+        
+        self.logger.info(f"Starting unified collection session for {len(pending_tickers)} tickers")
+        self.logger.info(f"Rate limiting: {self.min_delay}-{self.max_delay} seconds between requests")
+        self.logger.info(f"Batch size: {self.batch_size} tickers per batch")
+        self.logger.info(f"Max workers: {self.max_workers}")
+        
+        session_records = 0
+        session_errors = 0
+        
+        # Process in batches with limited concurrency
+        for i in range(0, len(pending_tickers), self.batch_size):
+            batch = pending_tickers[i:i + self.batch_size]
+            
+            if len(batch) == 1:
+                # Single ticker - process directly
+                batch_records, batch_errors = self.process_ticker_batch(batch)
+            else:
+                # Multiple tickers - use limited concurrency
+                with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    # Split batch into smaller chunks for concurrent processing
+                    chunk_size = max(1, len(batch) // self.max_workers)
+                    chunks = [batch[j:j + chunk_size] for j in range(0, len(batch), chunk_size)]
+                    
+                    futures = [executor.submit(self.process_ticker_batch, chunk) for chunk in chunks]
+                    
+                    for future in as_completed(futures):
+                        try:
+                            chunk_records, chunk_errors = future.result()
+                            session_records += chunk_records
+                            session_errors += chunk_errors
+                        except Exception as e:
+                            self.logger.error(f"Error in concurrent processing: {e}")
+                            session_errors += len(batch)
+            
+            # Save progress after each batch
+            self.save_progress()
+            
+            # Longer delay between batches
+            if i + self.batch_size < len(pending_tickers):
+                batch_delay = random.uniform(10, 20)  # 10-20 seconds between batches
+                self.logger.info(f"Batch complete. Waiting {batch_delay:.1f} seconds before next batch...")
+                time.sleep(batch_delay)
         
         # Log session results
         session_end = datetime.now()
@@ -555,7 +711,7 @@ class ComprehensiveNZXASXCollector:
             ''', (
                 start_time, end_time, tickers_processed,
                 records_added, errors_count, total_time,
-                f"NZX/ASX collection session - Rate limited"
+                f"Unified collection session - Rate limited with concurrency"
             ))
             
             conn.commit()
@@ -583,12 +739,22 @@ class ComprehensiveNZXASXCollector:
             cursor.execute('SELECT COUNT(*) FROM historical_data WHERE is_delisted = 1')
             delisted_records = cursor.fetchone()[0]
             
+            # Get records per exchange
+            cursor.execute('''
+                SELECT exchange, COUNT(*) as record_count, COUNT(DISTINCT ticker) as ticker_count
+                FROM historical_data 
+                GROUP BY exchange 
+                ORDER BY record_count DESC
+            ''')
+            exchange_stats = cursor.fetchall()
+            
             # Get records per ticker
             cursor.execute('''
                 SELECT ticker, COUNT(*) as record_count, MIN(date) as first_date, MAX(date) as last_date
                 FROM historical_data 
                 GROUP BY ticker 
                 ORDER BY record_count DESC
+                LIMIT 20
             ''')
             ticker_stats = cursor.fetchall()
             
@@ -599,6 +765,7 @@ class ComprehensiveNZXASXCollector:
                 'unique_tickers': unique_tickers,
                 'date_range': date_range,
                 'delisted_records': delisted_records,
+                'exchange_stats': exchange_stats,
                 'ticker_stats': ticker_stats
             }
             
@@ -608,9 +775,9 @@ class ComprehensiveNZXASXCollector:
     
     def print_progress_summary(self):
         """Print comprehensive progress summary"""
-        print("\n" + "="*80)
-        print("NZX/ASX HISTORICAL DATA COLLECTION PROGRESS")
-        print("="*80)
+        print("\n" + "="*100)
+        print("UNIFIED HISTORICAL DATA COLLECTION PROGRESS")
+        print("="*100)
         
         print(f"Total Tickers: {len(self.stock_universe)}")
         print(f"Completed: {len(self.progress['completed_tickers'])}")
@@ -636,28 +803,35 @@ class ComprehensiveNZXASXCollector:
             if db_stats['date_range'][0]:
                 print(f"Date Range: {db_stats['date_range'][0]} to {db_stats['date_range'][1]}")
             
+            if db_stats['exchange_stats']:
+                print(f"\nRecords by Exchange:")
+                for exchange, record_count, ticker_count in db_stats['exchange_stats']:
+                    print(f"  {exchange}: {record_count:,} records ({ticker_count} tickers)")
+            
             if db_stats['ticker_stats']:
                 print(f"\nTop 10 Tickers by Record Count:")
                 for i, (ticker, count, first_date, last_date) in enumerate(db_stats['ticker_stats'][:10]):
                     print(f"{i+1:2d}. {ticker:<8} - {count:4d} records ({first_date} to {last_date})")
         
-        print("="*80)
+        print("="*100)
 
 def main():
-    """Main function for NZX/ASX historical data collection"""
-    collector = ComprehensiveNZXASXCollector()
+    """Main function for unified historical data collection"""
+    collector = UnifiedHistoricalCollector()
     
-    print("="*80)
-    print("COMPREHENSIVE NZX/ASX HISTORICAL DATA COLLECTION")
-    print("="*80)
-    print(f"Total Tickers: {len(collector.stock_universe)}")
+    print("="*100)
+    print("UNIFIED HISTORICAL DATA COLLECTOR")
+    print("="*100)
+    print(f"Stock Universe: {len(collector.stock_universe)} stocks")
+    print(f"Exchanges: US, ASX, NZX")
     print(f"Date Range: {collector.start_date} to {collector.end_date}")
     print(f"Rate Limiting: {collector.min_delay}-{collector.max_delay} seconds between requests")
-    print(f"Batch Size: {collector.batch_size} tickers per session")
-    print("="*80)
+    print(f"Batch Size: {collector.batch_size} tickers per batch")
+    print(f"Max Workers: {collector.max_workers}")
+    print("="*100)
     
-    # Run collection session (process 3 tickers at a time to avoid rate limiting)
-    records_collected, errors = collector.run_collection_session(max_tickers=3)
+    # Run collection session (limit to 20 stocks for demo, remove limit for full collection)
+    records_collected, errors = collector.run_collection_session(max_tickers=20)
     
     # Print summary
     collector.print_progress_summary()
@@ -670,7 +844,7 @@ def main():
     
     print(f"\nTo continue collection, run this script again.")
     print(f"It will automatically resume from where it left off.")
-    print(f"Estimated time for all {len(collector.stock_universe)} tickers: {len(collector.stock_universe) * 8 / 3600:.1f} hours")
+    print(f"Estimated time for all {len(collector.stock_universe)} tickers: {len(collector.stock_universe) * 6 / 3600:.1f} hours")
 
 if __name__ == "__main__":
     main()
