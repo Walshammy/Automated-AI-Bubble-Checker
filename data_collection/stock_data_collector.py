@@ -78,9 +78,9 @@ class UnifiedStockDataCollector:
         self.backup_path = backup_path
         self.init_database()
         
-        # Rate limiting
-        self.base_delay = 0.5
-        self.max_delay = 5.0
+        # Rate limiting - More conservative for Yahoo Finance
+        self.base_delay = 2.0  # Increased from 0.5
+        self.max_delay = 30.0  # Increased from 5.0
         self.current_delay = self.base_delay
         self.consecutive_errors = 0
         
@@ -95,9 +95,9 @@ class UnifiedStockDataCollector:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
         
-        # Collection settings
-        self.batch_size = 10
-        self.max_workers = 3  # Enable parallelization
+        # Collection settings - More conservative
+        self.batch_size = 5   # Reduced from 10
+        self.max_workers = 1  # Reduced from 3 to avoid rate limiting
         
         # Thread-local connection storage
         self._local = threading.local()
@@ -368,15 +368,24 @@ class UnifiedStockDataCollector:
             return default
     
     def adaptive_delay(self, success: bool = True):
-        """Implement adaptive delay with exponential backoff"""
+        """Implement adaptive delay with exponential backoff - More aggressive for rate limiting"""
         if success:
             self.consecutive_errors = 0
-            self.current_delay = max(self.base_delay, self.current_delay * 0.9)
+            self.current_delay = max(self.base_delay, self.current_delay * 0.95)  # Slower recovery
         else:
             self.consecutive_errors += 1
-            self.current_delay = min(self.max_delay, self.current_delay * 1.5)
+            # More aggressive backoff for rate limiting
+            if self.consecutive_errors > 3:
+                self.current_delay = min(self.max_delay, self.current_delay * 2.0)  # Double delay
+            else:
+                self.current_delay = min(self.max_delay, self.current_delay * 1.5)
         
-        time.sleep(self.current_delay)
+        # Add extra delay for consecutive errors
+        if self.consecutive_errors > 5:
+            extra_delay = min(60, self.consecutive_errors * 5)  # Up to 60 seconds extra
+            time.sleep(self.current_delay + extra_delay)
+        else:
+            time.sleep(self.current_delay)
     
     def fetch_raw_data(self, ticker: str) -> StockRawData:
         """Stage 1: Fetch all raw data from yfinance (5 API calls max)"""
