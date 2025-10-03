@@ -78,13 +78,14 @@ class CurrentFundamentals:
 class ImprovedDataCollector:
     """Improved data collector with proper architecture and error handling"""
     
-    def __init__(self, db_path: str = "data_collection/improved_data.db"):
+    def __init__(self, db_path: str = "data_collection/improved_data.db", backup_path: str = r"C:\Users\james\Downloads\Stock Valuation\improved_data.db"):
         # Setup logging
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
         
         # Database setup
         self.db_path = db_path
+        self.backup_path = backup_path
         self.init_database()
         
         # Load stock universe
@@ -636,6 +637,23 @@ class ImprovedDataCollector:
             self.logger.error(f"Error saving fundamentals for {ticker}: {e}")
             return 0
     
+    def copy_to_backup(self):
+        """Copy database to backup location"""
+        try:
+            import shutil
+            import os
+            
+            # Ensure backup directory exists
+            backup_dir = os.path.dirname(self.backup_path)
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            # Copy database file
+            shutil.copy2(self.db_path, self.backup_path)
+            self.logger.info(f"Database copied to backup location: {self.backup_path}")
+            
+        except Exception as e:
+            self.logger.error(f"Error copying to backup: {e}")
+    
     def process_ticker(self, ticker: str) -> Tuple[int, int, bool, str]:
         """Process a single ticker with improved error handling"""
         try:
@@ -782,6 +800,9 @@ class ImprovedDataCollector:
         session_duration = (session_end - session_start).total_seconds()
         
         self.logger.info(f"Session complete: {session_price_records} price records, {session_fundamental_records} fundamental records, {session_errors} errors, {session_duration:.1f}s")
+        
+        # Copy to backup location
+        self.copy_to_backup()
         
         return session_price_records, session_fundamental_records, session_errors
     

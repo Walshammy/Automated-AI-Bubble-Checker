@@ -96,16 +96,20 @@ class ExtendedPriceData:
 class EnhancedDataCollector:
     """Collects additional free data for serious analysis"""
     
-    def __init__(self, db_path: str = "db_additions_test/enhanced_data.db"):
+    def __init__(self, db_path: str = "db_additions_test/enhanced_data.db", backup_path: str = r"C:\Users\james\Downloads\Stock Valuation\enhanced_data.db"):
         # Setup logging
         logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
         
         # Database setup
         self.db_path = db_path
+        self.backup_path = backup_path
         self.init_database()
         
-        # Test tickers (mix of US, ASX, NZX)
+        # Load full stock universe
+        self.load_stock_universe()
+        
+        # Test tickers (mix of US, ASX, NZX) - for validation only
         self.test_tickers = [
             'AAPL', 'MSFT', 'GOOGL', 'TSLA', 'AMZN',  # US tech
             'BHP.AX', 'CBA.AX', 'WBC.AX', 'ANZ.AX', 'NAB.AX',  # ASX major
@@ -259,6 +263,60 @@ class EnhancedDataCollector:
         except Exception as e:
             self.logger.error(f"Error initializing database: {e}")
             raise
+    
+    def load_stock_universe(self):
+        """Load the full stock universe from the Excel file (same as main collector)"""
+        try:
+            import pandas as pd
+            
+            # Load NZX stocks from Excel file (Sheet1)
+            nzx_df = pd.read_excel('data_collection/NZX_ASX.xlsx', sheet_name='Sheet1')
+            nzx_stocks = {}
+            for _, row in nzx_df.iterrows():
+                ticker = row['Code']
+                if pd.notna(ticker):
+                    nzx_stocks[f"{ticker}.NZ"] = {
+                        'company': str(row.get('Company', 'Unknown')),
+                        'exchange': 'NZX',
+                        'sector': 'Unknown'  # NZX sheet doesn't have sector info
+                    }
+            
+            # Load ASX stocks from Excel file (Sheet3)
+            asx_df = pd.read_excel('data_collection/NZX_ASX.xlsx', sheet_name='Sheet3')
+            asx_stocks = {}
+            for _, row in asx_df.iterrows():
+                ticker = row['Code']
+                if pd.notna(ticker):
+                    asx_stocks[f"{ticker}.AX"] = {
+                        'company': str(row.get('Company', 'Unknown')),
+                        'exchange': 'ASX',
+                        'sector': str(row.get('Sector', 'Unknown'))
+                    }
+            
+            # Add major US stocks
+            us_stocks = {
+                'AAPL': {'company': 'Apple Inc.', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'MSFT': {'company': 'Microsoft Corporation', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'GOOGL': {'company': 'Alphabet Inc.', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'AMZN': {'company': 'Amazon.com Inc.', 'exchange': 'NASDAQ', 'sector': 'Consumer'},
+                'TSLA': {'company': 'Tesla Inc.', 'exchange': 'NASDAQ', 'sector': 'Automotive'},
+                'NVDA': {'company': 'NVIDIA Corporation', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'META': {'company': 'Meta Platforms Inc.', 'exchange': 'NASDAQ', 'sector': 'Technology'},
+                'BRK-B': {'company': 'Berkshire Hathaway Class B', 'exchange': 'NYSE', 'sector': 'Financial'},
+                'JNJ': {'company': 'Johnson & Johnson', 'exchange': 'NYSE', 'sector': 'Healthcare'},
+                'PG': {'company': 'Procter & Gamble Company', 'exchange': 'NYSE', 'sector': 'Consumer'},
+            }
+            
+            # Combine all stocks
+            self.stock_universe = {**nzx_stocks, **asx_stocks, **us_stocks}
+            
+            self.logger.info(f"Loaded stock universe: {len(nzx_stocks)} NZX, {len(asx_stocks)} ASX, {len(us_stocks)} US stocks")
+            self.logger.info(f"Total stocks: {len(self.stock_universe)}")
+            
+        except Exception as e:
+            self.logger.error(f"Error loading stock universe: {e}")
+            # Use minimal fallback
+            self.stock_universe = {'AAPL': {'company': 'Apple Inc.', 'exchange': 'NASDAQ', 'sector': 'Technology'}}
     
     def test_analyst_ratings(self, ticker: str) -> Tuple[bool, int, str]:
         """Test collection of analyst ratings"""
@@ -741,6 +799,23 @@ class EnhancedDataCollector:
         conn.commit()
         conn.close()
     
+    def copy_to_backup(self):
+        """Copy database to backup location"""
+        try:
+            import shutil
+            import os
+            
+            # Ensure backup directory exists
+            backup_dir = os.path.dirname(self.backup_path)
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            # Copy database file
+            shutil.copy2(self.db_path, self.backup_path)
+            self.logger.info(f"Enhanced database copied to backup location: {self.backup_path}")
+            
+        except Exception as e:
+            self.logger.error(f"Error copying enhanced database to backup: {e}")
+    
     def save_test_result(self, ticker: str, test_type: str, success: bool, records: int, error: str):
         """Save test result to database"""
         conn = sqlite3.connect(self.db_path)
@@ -1011,11 +1086,124 @@ class EnhancedDataCollector:
             
         except Exception as e:
             self.logger.error(f"Error analyzing enhanced database: {e}")
+    
+    def collect_enhanced_data_for_all_stocks(self, max_stocks: int = None, data_types: list = None):
+        """Collect enhanced data for all stocks in the universe"""
+        if data_types is None:
+            data_types = ['analyst_ratings', 'earnings_history', 'corporate_actions', 'institutional_holdings', 'extended_price_data']
+        
+        if max_stocks is None:
+            max_stocks = len(self.stock_universe)
+        
+        # Get list of all tickers
+        all_tickers = list(self.stock_universe.keys())[:max_stocks]
+        
+        print("=" * 80)
+        print("ENHANCED DATA COLLECTION FOR ALL STOCKS")
+        print("=" * 80)
+        print(f"Total stocks to process: {len(all_tickers)}")
+        print(f"Data types: {', '.join(data_types)}")
+        print(f"Rate limiting: 1 second between requests")
+        print("=" * 80)
+        
+        total_records = 0
+        successful_stocks = 0
+        failed_stocks = 0
+        
+        for i, ticker in enumerate(all_tickers, 1):
+            print(f"\n[{i}/{len(all_tickers)}] Processing {ticker}...")
+            
+            stock_success = True
+            stock_records = 0
+            
+            for data_type in data_types:
+                try:
+                    if data_type == 'analyst_ratings':
+                        success, records, error = self.test_analyst_ratings(ticker)
+                    elif data_type == 'earnings_history':
+                        success, records, error = self.test_earnings_history(ticker)
+                    elif data_type == 'corporate_actions':
+                        success, records, error = self.test_corporate_actions(ticker)
+                    elif data_type == 'institutional_holdings':
+                        success, records, error = self.test_institutional_holdings(ticker)
+                    elif data_type == 'extended_price_data':
+                        success, records, error = self.test_extended_price_data(ticker)
+                    else:
+                        continue
+                    
+                    if success:
+                        stock_records += records
+                        print(f"  + {data_type}: {records} records")
+                    else:
+                        print(f"  - {data_type}: {error}")
+                        stock_success = False
+                    
+                except Exception as e:
+                    print(f"  - {data_type}: Error - {e}")
+                    stock_success = False
+                
+                # Rate limiting
+                time.sleep(1)
+            
+            if stock_success:
+                successful_stocks += 1
+                total_records += stock_records
+                print(f"  + {ticker}: {stock_records} total records")
+            else:
+                failed_stocks += 1
+                print(f"  - {ticker}: Failed")
+            
+            # Progress update every 50 stocks
+            if i % 50 == 0:
+                print(f"\n--- PROGRESS UPDATE ---")
+                print(f"Processed: {i}/{len(all_tickers)} stocks")
+                print(f"Successful: {successful_stocks}")
+                print(f"Failed: {failed_stocks}")
+                print(f"Total records: {total_records:,}")
+                print(f"Success rate: {(successful_stocks/i)*100:.1f}%")
+        
+        # Final summary
+        print(f"\n" + "=" * 80)
+        print(f"ENHANCED DATA COLLECTION COMPLETE!")
+        print(f"=" * 80)
+        print(f"Total stocks processed: {len(all_tickers)}")
+        print(f"Successful: {successful_stocks}")
+        print(f"Failed: {failed_stocks}")
+        print(f"Success rate: {(successful_stocks/len(all_tickers))*100:.1f}%")
+        print(f"Total records collected: {total_records:,}")
+        print(f"Database: {self.db_path}")
+        print(f"=" * 80)
+        
+        # Final database analysis
+        self.analyze_enhanced_database()
+        
+        # Copy to backup location
+        self.copy_to_backup()
 
 def main():
-    """Main function for testing enhanced data collection"""
+    """Main function for enhanced data collection"""
     collector = EnhancedDataCollector()
-    collector.run_comprehensive_test()
+    
+    # Ask user what to do
+    print("Enhanced Data Collector Options:")
+    print("1. Run test with sample stocks (15 stocks)")
+    print("2. Collect data for ALL stocks in universe (2,487 stocks)")
+    print("3. Collect data for first 100 stocks")
+    print("4. Collect data for first 500 stocks")
+    
+    choice = input("\nEnter your choice (1-4): ").strip()
+    
+    if choice == "1":
+        collector.run_comprehensive_test()
+    elif choice == "2":
+        collector.collect_enhanced_data_for_all_stocks()
+    elif choice == "3":
+        collector.collect_enhanced_data_for_all_stocks(max_stocks=100)
+    elif choice == "4":
+        collector.collect_enhanced_data_for_all_stocks(max_stocks=500)
+    else:
+        print("Invalid choice. Running test with sample stocks...")
+        collector.run_comprehensive_test()
 
 if __name__ == "__main__":
     main()
