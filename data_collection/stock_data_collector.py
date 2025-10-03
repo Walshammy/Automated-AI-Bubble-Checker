@@ -26,6 +26,7 @@ import logging
 import time
 import json
 import os
+import threading
 from datetime import datetime, date, timedelta
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any, Tuple
@@ -98,8 +99,8 @@ class UnifiedStockDataCollector:
         self.batch_size = 10
         self.max_workers = 3  # Enable parallelization
         
-        # Connection pooling
-        self.conn_pool = None
+        # Thread-local connection storage
+        self._local = threading.local()
         
         # Progress tracking
         self.progress_file = "data_collection/collection_progress.json"
@@ -345,16 +346,16 @@ class UnifiedStockDataCollector:
             self.logger.warning(f"Error saving ticker progress: {e}")
     
     def get_connection(self):
-        """Get database connection from pool"""
-        if self.conn_pool is None:
-            self.conn_pool = sqlite3.connect(self.db_path)
-        return self.conn_pool
+        """Get thread-local database connection"""
+        if not hasattr(self._local, 'connection') or self._local.connection is None:
+            self._local.connection = sqlite3.connect(self.db_path)
+        return self._local.connection
     
     def close_connection(self):
-        """Close database connection"""
-        if self.conn_pool is not None:
-            self.conn_pool.close()
-            self.conn_pool = None
+        """Close thread-local database connection"""
+        if hasattr(self._local, 'connection') and self._local.connection is not None:
+            self._local.connection.close()
+            self._local.connection = None
     
     def safe_get(self, data: Dict, key: str, default: Any = None) -> Any:
         """Safely get value from dictionary"""
@@ -800,7 +801,7 @@ class UnifiedStockDataCollector:
         """Save database state and progress"""
         conn = self.get_connection()
         conn.execute("PRAGMA wal_checkpoint(FULL)")
-        # Don't close connection here - keep it for the pool
+        # Don't close connection here - keep it for thread-local storage
     
     def copy_to_backup(self):
         """Copy database to backup location"""
@@ -888,7 +889,7 @@ class UnifiedStockDataCollector:
                 self.logger.info(f"Checkpoint: Processed {processed}/{len(remaining_tickers)} remaining tickers")
                 self.logger.info(f"Success rate: {session_successful}/{processed} ({session_successful/processed*100:.1f}%)")
         
-        # Close connection pool
+        # Close all thread-local connections
         self.close_connection()
         
         # Copy to backup location
