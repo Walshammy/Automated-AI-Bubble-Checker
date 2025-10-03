@@ -290,21 +290,30 @@ class UnifiedStockDataCollector:
             # Load NZX stocks
             nzx_df = pd.read_excel('data_collection/NZX_ASX.xlsx', sheet_name='Sheet1')
             for _, row in nzx_df.iterrows():
-                ticker = f"{row['Code']}.NZ"
+                code = row.get('Code', '')
+                if pd.isna(code) or not isinstance(code, str) or len(str(code).strip()) < 2:
+                    continue
+                ticker = f"{str(code).strip()}.NZ"
                 name = row.get('Name', '')
                 stock_universe[ticker] = name
             
             # Load ASX stocks
             asx_df = pd.read_excel('data_collection/NZX_ASX.xlsx', sheet_name='Sheet3')
             for _, row in asx_df.iterrows():
-                ticker = f"{row['Code']}.AX"
+                code = row.get('Code', '')
+                if pd.isna(code) or not isinstance(code, str) or len(str(code).strip()) < 2:
+                    continue
+                ticker = f"{str(code).strip()}.AX"
                 name = row.get('Name', '')
                 stock_universe[ticker] = name
             
             # Load US stocks from USMarket.xlsx
             us_df = pd.read_excel('data_collection/USMarket.xlsx')
             for _, row in us_df.iterrows():
-                ticker = row['Symbol']
+                symbol = row.get('Symbol', '')
+                if pd.isna(symbol) or not isinstance(symbol, str) or len(str(symbol).strip()) < 1:
+                    continue
+                ticker = str(symbol).strip()
                 name = row.get('Security', f"{ticker} Corporation")
                 stock_universe[ticker] = name
             
@@ -558,7 +567,7 @@ class UnifiedStockDataCollector:
                 self.safe_get(info, 'returnOnInvestedCapital'),
                 self.safe_get(info, 'debtToEquity'),
                 self.safe_get(info, 'currentRatio'),
-                self.safe_get(info, 'freeCashflow') / self.safe_get(info, 'marketCap') if self.safe_get(info, 'marketCap') else None,
+                self.safe_get(info, 'freeCashflow') / self.safe_get(info, 'marketCap') if self.safe_get(info, 'marketCap') and self.safe_get(info, 'marketCap') != 0 else None,
                 self.safe_get(info, 'trailingEps'),
                 self.safe_get(info, 'earningsGrowth'),
                 self.safe_get(info, 'revenueGrowth'),
