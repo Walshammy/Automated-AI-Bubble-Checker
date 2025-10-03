@@ -94,7 +94,7 @@ class ValuationSummary:
 class ComprehensiveStockAnalyzer:
     """Comprehensive stock analyzer for US, ASX, and NZX markets"""
     
-    def __init__(self, db_path: str = "stock_valuation_data.db"):
+    def __init__(self, db_path: str = r"C:\Users\james\Downloads\StockDB\stock_valuation_data.db"):
         self.db_path = db_path
         self.init_database()
         

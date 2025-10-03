@@ -68,8 +68,8 @@ class ProcessedStockData:
 class UnifiedStockDataCollector:
     """Unified stock data collector with all optimizations"""
     
-    def __init__(self, db_path: str = "data_collection/unified_stock_data.db", 
-                 backup_path: str = r"C:\Users\james\Downloads\Stock Valuation\unified_stock_data.db"):
+    def __init__(self, db_path: str = r"C:\Users\james\Downloads\StockDB\unified_stock_data.db", 
+                 backup_path: str = r"C:\Users\james\Downloads\StockDB\unified_stock_data_backup.db"):
         # Setup logging
         self.logger = logging.getLogger(__name__)
         
