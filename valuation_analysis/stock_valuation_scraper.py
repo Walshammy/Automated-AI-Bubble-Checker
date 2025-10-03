@@ -348,7 +348,7 @@ class DeepStockInvestigation:
                 verdict = "Undervalued"
             elif discount_pct > -10:
                 verdict = "Fair"
-        else:
+            else:
                 verdict = "Overvalued"
         else:
             avg_intrinsic_value = current_price
