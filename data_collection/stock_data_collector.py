@@ -392,8 +392,8 @@ class UnifiedStockDataCollector:
                     history=pd.DataFrame(),
                     recommendations=None,
                     institutional_holders=None,
-                    dividends=None,
-                    splits=None,
+                    actions=None,
+                    earnings_dates=None,
                     is_valid=False,
                     error_message="Insufficient info data"
                 )
@@ -411,8 +411,8 @@ class UnifiedStockDataCollector:
                     history=pd.DataFrame(),
                     recommendations=None,
                     institutional_holders=None,
-                    dividends=None,
-                    splits=None,
+                    actions=None,
+                    earnings_dates=None,
                     is_valid=False,
                     error_message="No historical data"
                 )
@@ -887,7 +887,8 @@ class UnifiedStockDataCollector:
             processed = session_successful + session_failed
             if processed % 50 == 0:
                 self.logger.info(f"Checkpoint: Processed {processed}/{len(remaining_tickers)} remaining tickers")
-                self.logger.info(f"Success rate: {session_successful}/{processed} ({session_successful/processed*100:.1f}%)")
+                success_rate = session_successful/processed*100 if processed > 0 else 0
+                self.logger.info(f"Success rate: {session_successful}/{processed} ({success_rate:.1f}%)")
         
         # Close all thread-local connections
         self.close_connection()
@@ -900,7 +901,8 @@ class UnifiedStockDataCollector:
         self.logger.info(f"  Total Records: {session_total_records:,}")
         self.logger.info(f"  Successful: {session_successful}")
         self.logger.info(f"  Failed: {session_failed}")
-        self.logger.info(f"  Success Rate: {session_successful/(session_successful+session_failed)*100:.1f}%")
+        success_rate = session_successful/(session_successful+session_failed)*100 if (session_successful+session_failed) > 0 else 0
+        self.logger.info(f"  Success Rate: {success_rate:.1f}%")
         
         return session_total_records, session_successful, session_failed
 
@@ -936,6 +938,10 @@ def main():
     universe = collector.load_stock_universe()
     total_stocks = len(universe)
     
+    if total_stocks == 0:
+        print("Error: No stock universe loaded. Please check Excel files.")
+        return
+    
     if choice == "1":
         target_percentage = 10 / total_stocks * 100
         print(f"Starting test run...")
@@ -961,7 +967,8 @@ def main():
         print(f"Total Records: {total_records:,}")
         print(f"Successful: {successful}")
         print(f"Failed: {failed}")
-        print(f"Success Rate: {successful/(successful+failed)*100:.1f}%")
+        success_rate = successful/(successful+failed)*100 if (successful+failed) > 0 else 0
+        print(f"Success Rate: {success_rate:.1f}%")
         print(f"Database: {collector.db_path}")
         print(f"Backup: {collector.backup_path}")
         print("=" * 80)
