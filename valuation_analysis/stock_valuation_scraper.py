@@ -643,7 +643,7 @@ class DeepStockInvestigation:
 """
         
         if thesis.section_8.get('key_reasons'):
-            for reason in thesis.section_8['key_reasons']:
+            for reason in thesis.section_8.get('key_reasons'):
                 markdown += f"- {reason}\n"
         
         markdown += f"""
@@ -1023,50 +1023,90 @@ class DeepStockInvestigation:
         }
 
 def main():
-    """Example usage of Deep Stock Investigation"""
+    """Test Deep Stock Investigation on 3 different stocks"""
     try:
         print("="*80)
         print("DEEP STOCK INVESTIGATION TOOL - STAGE 2 ANALYSIS")
         print("="*80)
-        print("This tool performs comprehensive deep-dive analysis using unified_stock_data.db")
+        print("Testing on 3 different stocks from your database")
         print("No external data collection - works entirely with your database.")
         print("="*80)
         
-        # Example with NZX stock
-        ticker = 'AIR.NZ'  # Air New Zealand
-        print(f"\nAnalyzing: {ticker}")
+        # Test stocks from different exchanges
+        test_stocks = [
+            'AIR.NZ',   # Air New Zealand (NZX)
+            'CBA.AX',   # Commonwealth Bank (ASX) 
+            'AAPL'      # Apple Inc (US)
+        ]
         
-        investigator = DeepStockInvestigation(
-            'data_collection/unified_stock_data.db', 
-            ticker
-        )
+        results = []
         
-        # Print comprehensive summary
-        investigator.print_summary()
+        for i, ticker in enumerate(test_stocks, 1):
+            print(f"\n{'='*60}")
+            print(f"STOCK {i}/3: {ticker}")
+            print(f"{'='*60}")
+            
+            try:
+                investigator = DeepStockInvestigation(
+                    'data_collection/unified_stock_data.db', 
+                    ticker
+                )
+                
+                # Print comprehensive summary
+                investigator.print_summary()
+                
+                # Export to Excel
+                excel_filename = f"{ticker.replace('.', '_')}_investment_thesis.xlsx"
+                investigator.export_to_excel(excel_filename)
+                print(f"\nExcel report exported to: {excel_filename}")
+                
+                # Store results for summary
+                thesis = investigator.generate_investment_thesis()
+                results.append({
+                    'ticker': ticker,
+                    'action': thesis.section_8.get('action', 'UNKNOWN'),
+                    'composite_score': thesis.section_8.get('composite_score', 0),
+                    'discount_pct': thesis.section_3.get('discount_pct', 0),
+                    'financial_health': thesis.section_2.get('score', 0),
+                    'quality_score': thesis.section_4.get('score', 0),
+                    'risk_score': thesis.section_6.get('risk_score', 0),
+                    'sector': thesis.section_1.get('sector', 'Unknown')
+                })
+                
+            except Exception as e:
+                print(f"❌ Error analyzing {ticker}: {e}")
+                results.append({
+                    'ticker': ticker,
+                    'action': 'ERROR',
+                    'composite_score': 0,
+                    'discount_pct': 0,
+                    'financial_health': 0,
+                    'quality_score': 0,
+                    'risk_score': 100,
+                    'sector': 'Unknown'
+                })
         
-        # Export to Excel
-        excel_filename = f"{ticker.replace('.', '_')}_investment_thesis.xlsx"
-        investigator.export_to_excel(excel_filename)
-        print(f"\nExcel report exported to: {excel_filename}")
+        # Print summary comparison
+        print(f"\n{'='*80}")
+        print("SUMMARY COMPARISON - ALL 3 STOCKS")
+        print(f"{'='*80}")
+        print(f"{'Ticker':<10} {'Action':<12} {'Score':<8} {'Discount':<10} {'Financial':<10} {'Quality':<8} {'Risk':<8} {'Sector':<15}")
+        print("-" * 80)
         
-        # Generate Notion markdown
-        markdown = investigator.export_to_notion_markdown()
-        print(f"\nNotion markdown generated (copy to clipboard):")
-        print("-" * 50)
-        print(markdown[:500] + "..." if len(markdown) > 500 else markdown)
-        print("-" * 50)
+        for result in results:
+            print(f"{result['ticker']:<10} {result['action']:<12} {result['composite_score']:<8.0f} {result['discount_pct']:<+10.1f}% {result['financial_health']:<10.0f} {result['quality_score']:<8.0f} {result['risk_score']:<8.0f} {result['sector']:<15}")
         
         print(f"\n{'='*80}")
         print("ANALYSIS COMPLETE!")
         print("="*80)
-        print("Key Features:")
+        print("Key Features Demonstrated:")
         print("✓ 8-section investment thesis analysis")
         print("✓ Database-only approach (no external API calls)")
         print("✓ Sector comparison from your data")
         print("✓ Multiple valuation methods")
         print("✓ Risk assessment and catalyst identification")
         print("✓ Excel export with multiple sheets")
-        print("✓ Notion-compatible markdown")
+        print("✓ Cross-stock comparison")
         print("="*80)
         
     except Exception as e:
@@ -1074,7 +1114,7 @@ def main():
         print(f"Error: {e}")
         print("\nMake sure:")
         print("1. Database exists at: data_collection/unified_stock_data.db")
-        print("2. Ticker exists in the database")
+        print("2. Tickers exist in the database")
         print("3. Database has been populated with stock data")
 
 if __name__ == "__main__":
