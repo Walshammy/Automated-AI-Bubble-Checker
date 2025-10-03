@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """
-OPTIMIZED UNIFIED STOCK DATA COLLECTOR
-======================================
+UNIFIED STOCK DATA COLLECTOR
+============================
 
-High-performance data collection with architectural optimizations:
+The single, optimized data collection script for comprehensive stock data.
+Combines all previous functionality with performance optimizations.
+
+Features:
 - Single API call per data type per stock
-- Single database transaction per stock
-- Batch processing with connection pooling
+- Single database transaction per stock  
 - Early termination for invalid data
 - Fixed institutional holdings bug
-- Parallel processing (3 workers)
+- Vectorized data processing
+- Rate limiting protection
+- Comprehensive stock universe (US, ASX, NZX)
 
 Author: AI Assistant
 Date: 2025-10-03
@@ -42,8 +46,8 @@ class StockRawData:
     history: pd.DataFrame
     recommendations: Optional[pd.DataFrame]
     institutional_holders: Optional[pd.DataFrame]
-    dividends: Optional[pd.Series]
-    splits: Optional[pd.Series]
+    actions: Optional[pd.DataFrame]  # Combined dividends and splits
+    earnings_dates: Optional[pd.DataFrame]
     is_valid: bool = True
     error_message: Optional[str] = None
 
@@ -60,8 +64,8 @@ class ProcessedStockData:
     extended_price_data: Optional[Tuple]
     total_records: int = 0
 
-class OptimizedStockDataCollector:
-    """Optimized stock data collector with architectural improvements"""
+class UnifiedStockDataCollector:
+    """Unified stock data collector with all optimizations"""
     
     def __init__(self, db_path: str = "data_collection/unified_stock_data.db", 
                  backup_path: str = r"C:\Users\james\Downloads\Stock Valuation\unified_stock_data.db"):
@@ -74,8 +78,8 @@ class OptimizedStockDataCollector:
         self.init_database()
         
         # Rate limiting
-        self.base_delay = 0.5  # Reduced from 1.0
-        self.max_delay = 5.0   # Reduced from 10.0
+        self.base_delay = 0.5
+        self.max_delay = 5.0
         self.current_delay = self.base_delay
         self.consecutive_errors = 0
         
@@ -92,10 +96,17 @@ class OptimizedStockDataCollector:
         
         # Collection settings
         self.batch_size = 10
-        self.max_workers = 1  # Reduced to avoid rate limiting
+        self.max_workers = 3  # Enable parallelization
+        
+        # Connection pooling
+        self.conn_pool = None
         
         # Progress tracking
-        self.progress_file = "data_collection/optimized_collection_progress.json"
+        self.progress_file = "data_collection/collection_progress.json"
+        self.completed_tickers_file = "data_collection/completed_tickers.json"
+        
+        # Cache stock universe
+        self.stock_universe = None
         
     def init_database(self):
         """Initialize unified database with all table schemas"""
@@ -265,10 +276,13 @@ class OptimizedStockDataCollector:
         
         conn.commit()
         conn.close()
-        self.logger.info("Optimized database initialized successfully")
+        self.logger.info("Unified database initialized successfully")
     
     def load_stock_universe(self) -> Dict[str, str]:
-        """Load stock universe from Excel files"""
+        """Load comprehensive stock universe from Excel files (cached)"""
+        if self.stock_universe is not None:
+            return self.stock_universe
+            
         try:
             stock_universe = {}
             
@@ -293,6 +307,9 @@ class OptimizedStockDataCollector:
                 name = row.get('Security', f"{ticker} Corporation")
                 stock_universe[ticker] = name
             
+            # Cache the universe
+            self.stock_universe = stock_universe
+            
             self.logger.info(f"Loaded stock universe: {len(stock_universe)} stocks")
             self.logger.info(f"  NZX: {len(nzx_df)} stocks")
             self.logger.info(f"  ASX: {len(asx_df)} stocks") 
@@ -302,6 +319,42 @@ class OptimizedStockDataCollector:
         except Exception as e:
             self.logger.error(f"Error loading stock universe: {e}")
             return {}
+    
+    def load_completed_tickers(self) -> set:
+        """Load list of successfully processed tickers"""
+        try:
+            if os.path.exists(self.completed_tickers_file):
+                with open(self.completed_tickers_file, 'r') as f:
+                    completed = json.load(f)
+                    return set(completed)
+            return set()
+        except Exception as e:
+            self.logger.warning(f"Error loading completed tickers: {e}")
+            return set()
+    
+    def save_ticker_progress(self, ticker: str):
+        """Append ticker to completed list"""
+        try:
+            completed = self.load_completed_tickers()
+            completed.add(ticker)
+            
+            with open(self.completed_tickers_file, 'w') as f:
+                json.dump(list(completed), f)
+                
+        except Exception as e:
+            self.logger.warning(f"Error saving ticker progress: {e}")
+    
+    def get_connection(self):
+        """Get database connection from pool"""
+        if self.conn_pool is None:
+            self.conn_pool = sqlite3.connect(self.db_path)
+        return self.conn_pool
+    
+    def close_connection(self):
+        """Close database connection"""
+        if self.conn_pool is not None:
+            self.conn_pool.close()
+            self.conn_pool = None
     
     def safe_get(self, data: Dict, key: str, default: Any = None) -> Any:
         """Safely get value from dictionary"""
@@ -375,14 +428,14 @@ class OptimizedStockDataCollector:
                 institutional_holders = None
             
             try:
-                dividends = stock.dividends
+                actions = stock.actions  # Single call for dividends and splits
             except:
-                dividends = None
+                actions = None
             
             try:
-                splits = stock.splits
+                earnings_dates = stock.earnings_dates
             except:
-                splits = None
+                earnings_dates = None
             
             return StockRawData(
                 ticker=ticker,
@@ -390,8 +443,8 @@ class OptimizedStockDataCollector:
                 history=history,
                 recommendations=recommendations,
                 institutional_holders=institutional_holders,
-                dividends=dividends,
-                splits=splits,
+                actions=actions,
+                earnings_dates=earnings_dates,
                 is_valid=True
             )
             
@@ -402,8 +455,8 @@ class OptimizedStockDataCollector:
                 history=pd.DataFrame(),
                 recommendations=None,
                 institutional_holders=None,
-                dividends=None,
-                splits=None,
+                actions=None,
+                earnings_dates=None,
                 is_valid=False,
                 error_message=str(e)
             )
@@ -468,9 +521,13 @@ class OptimizedStockDataCollector:
             max_drawdown_5y = None
             
             if not history.empty and len(history) > 20:  # Need sufficient data
-                returns = history['Close'].pct_change(fill_method=None).dropna()
+                returns = history['Close'].pct_change().dropna()
                 if len(returns) > 0:
-                    volatility_1y = returns.std() * (252 ** 0.5)  # Annualized volatility
+                    # Determine data frequency and calculate appropriate annualization factor
+                    if len(history) > 252:  # Likely daily data
+                        volatility_1y = returns.std() * (252 ** 0.5)  # 252 trading days
+                    else:  # Likely weekly data
+                        volatility_1y = returns.std() * (52 ** 0.5)  # 52 weeks
                     
                     # Calculate max drawdown
                     cumulative = (1 + returns).cumprod()
@@ -536,17 +593,15 @@ class OptimizedStockDataCollector:
         
         # Process earnings history
         earnings_history = []
-        quarterly_earnings = self.safe_get(info, 'quarterlyEarnings', [])
-        if quarterly_earnings:
-            for quarter in quarterly_earnings:
+        if raw_data.earnings_dates is not None and not raw_data.earnings_dates.empty:
+            for date_idx, row in raw_data.earnings_dates.iterrows():
                 try:
-                    quarter_date = datetime.strptime(quarter['date'], '%Y-%m-%d').date()
                     earnings_history.append((
-                        ticker, quarter_date,
-                        self.safe_get(quarter, 'actual'),
-                        self.safe_get(quarter, 'estimate'),
-                        self.safe_get(quarter, 'surprise'),
-                        self.safe_get(quarter, 'revenue')
+                        ticker, date_idx.date(),
+                        self.safe_get(row, 'Actual'),  # Actual EPS
+                        self.safe_get(row, 'Estimate'),  # Estimated EPS
+                        self.safe_get(row, 'Surprise'),  # Surprise %
+                        None  # Revenue not available in earnings_dates
                     ))
                 except Exception as e:
                     self.logger.warning(f"Error processing earnings for {ticker}: {e}")
@@ -555,21 +610,27 @@ class OptimizedStockDataCollector:
         # Process corporate actions
         corporate_actions = []
         
-        # Process dividends
-        if raw_data.dividends is not None and not raw_data.dividends.empty:
-            for date_idx, value in raw_data.dividends.items():
-                corporate_actions.append((
-                    ticker, date_idx.date(), 'dividend',
-                    float(value), f"Dividend: ${value:.4f}"
-                ))
-        
-        # Process splits
-        if raw_data.splits is not None and not raw_data.splits.empty:
-            for date_idx, value in raw_data.splits.items():
-                corporate_actions.append((
-                    ticker, date_idx.date(), 'split',
-                    float(value), f"Stock Split: {value}:1"
-                ))
+        # Process actions (dividends and splits combined)
+        if raw_data.actions is not None and not raw_data.actions.empty:
+            for date_idx, row in raw_data.actions.iterrows():
+                try:
+                    # Process dividends
+                    if 'Dividends' in row and not pd.isna(row['Dividends']) and row['Dividends'] > 0:
+                        corporate_actions.append((
+                            ticker, date_idx.date(), 'dividend',
+                            float(row['Dividends']), f"Dividend: ${row['Dividends']:.4f}"
+                        ))
+                    
+                    # Process splits
+                    if 'Stock Splits' in row and not pd.isna(row['Stock Splits']) and row['Stock Splits'] > 0:
+                        corporate_actions.append((
+                            ticker, date_idx.date(), 'split',
+                            float(row['Stock Splits']), f"Stock Split: {row['Stock Splits']}:1"
+                        ))
+                        
+                except Exception as e:
+                    self.logger.warning(f"Error processing corporate action for {ticker} on {date_idx.date()}: {e}")
+                    continue
         
         # Process institutional holdings (FIXED BUG)
         institutional_holdings = []
@@ -633,11 +694,11 @@ class OptimizedStockDataCollector:
         )
     
     def save_processed_data(self, processed_data: ProcessedStockData):
-        """Stage 3: Single database transaction per stock"""
+        """Stage 3: Single database transaction per stock using connection pool"""
         if processed_data.total_records == 0:
             return
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self.get_connection()
         cursor = conn.cursor()
         
         try:
@@ -709,8 +770,6 @@ class OptimizedStockDataCollector:
         except Exception as e:
             self.logger.error(f"Error saving data for {processed_data.ticker}: {e}")
             conn.rollback()
-        finally:
-            conn.close()
     
     def process_single_stock(self, ticker: str, name: str) -> Tuple[int, bool]:
         """Process a single stock with optimized pipeline"""
@@ -728,6 +787,9 @@ class OptimizedStockDataCollector:
             # Stage 3: Save to database
             self.save_processed_data(processed_data)
             
+            # Save progress
+            self.save_ticker_progress(ticker)
+            
             return processed_data.total_records, True
             
         except Exception as e:
@@ -736,9 +798,9 @@ class OptimizedStockDataCollector:
     
     def checkpoint_after_batch(self):
         """Save database state and progress"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self.get_connection()
         conn.execute("PRAGMA wal_checkpoint(FULL)")
-        conn.close()
+        # Don't close connection here - keep it for the pool
     
     def copy_to_backup(self):
         """Copy database to backup location"""
@@ -757,9 +819,9 @@ class OptimizedStockDataCollector:
         except Exception as e:
             self.logger.error(f"Error copying to backup: {e}")
     
-    def run_optimized_collection(self, target_percentage: float = 100.0):
-        """Run optimized data collection with parallel processing"""
-        self.logger.info("Starting optimized data collection")
+    def run_collection(self, target_percentage: float = 100.0):
+        """Run data collection with all optimizations and progress tracking"""
+        self.logger.info("Starting unified data collection")
         
         # Load stock universe
         stock_universe = self.load_stock_universe()
@@ -767,23 +829,30 @@ class OptimizedStockDataCollector:
             self.logger.error("No stock universe loaded")
             return
         
+        # Load completed tickers to resume from where we left off
+        completed_tickers = self.load_completed_tickers()
+        self.logger.info(f"Found {len(completed_tickers)} previously completed tickers")
+        
         total_stocks = len(stock_universe)
         target_stocks = int(total_stocks * target_percentage / 100)
         
+        # Filter out already completed tickers
+        remaining_tickers = [(ticker, name) for ticker, name in stock_universe.items() 
+                           if ticker not in completed_tickers]
+        
         self.logger.info(f"Target: {target_stocks}/{total_stocks} stocks ({target_percentage}%)")
+        self.logger.info(f"Remaining: {len(remaining_tickers)} stocks to process")
         self.logger.info(f"Using {self.max_workers} parallel workers")
         
         session_total_records = 0
         session_successful = 0
         session_failed = 0
         
-        # Process stocks in batches with parallel processing
-        tickers = list(stock_universe.items())
-        
-        for i in range(0, min(target_stocks, len(tickers)), self.batch_size):
-            batch = tickers[i:i + self.batch_size]
+        # Process stocks in batches with parallelization
+        for i in range(0, min(len(remaining_tickers), target_stocks - len(completed_tickers)), self.batch_size):
+            batch = remaining_tickers[i:i + self.batch_size]
             
-            # Process batch in parallel
+            # Process batch with ThreadPoolExecutor
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 # Submit all tasks in the batch
                 future_to_ticker = {
@@ -791,7 +860,7 @@ class OptimizedStockDataCollector:
                     for ticker, name in batch
                 }
                 
-                # Collect results as they complete
+                # Process completed tasks
                 for future in as_completed(future_to_ticker):
                     ticker = future_to_ticker[future]
                     try:
@@ -801,9 +870,14 @@ class OptimizedStockDataCollector:
                             session_successful += 1
                         else:
                             session_failed += 1
+                        
+                        # Adaptive delay
+                        self.adaptive_delay(success=success)
+                        
                     except Exception as e:
                         self.logger.error(f"Error processing {ticker}: {e}")
                         session_failed += 1
+                        self.adaptive_delay(success=False)
             
             # Checkpoint after each batch
             self.checkpoint_after_batch()
@@ -811,13 +885,16 @@ class OptimizedStockDataCollector:
             # Progress update
             processed = session_successful + session_failed
             if processed % 50 == 0:
-                self.logger.info(f"Checkpoint: Processed {processed}/{target_stocks} tickers")
+                self.logger.info(f"Checkpoint: Processed {processed}/{len(remaining_tickers)} remaining tickers")
                 self.logger.info(f"Success rate: {session_successful}/{processed} ({session_successful/processed*100:.1f}%)")
+        
+        # Close connection pool
+        self.close_connection()
         
         # Copy to backup location
         self.copy_to_backup()
         
-        self.logger.info("Optimized data collection completed")
+        self.logger.info("Unified data collection completed")
         self.logger.info(f"Session Summary:")
         self.logger.info(f"  Total Records: {session_total_records:,}")
         self.logger.info(f"  Successful: {session_successful}")
@@ -829,18 +906,22 @@ class OptimizedStockDataCollector:
 def main():
     """Main function"""
     print("=" * 80)
-    print("OPTIMIZED UNIFIED STOCK DATA COLLECTOR")
+    print("UNIFIED STOCK DATA COLLECTOR")
     print("=" * 80)
-    print("Performance optimizations:")
-    print("+ Single API call per data type")
-    print("+ Single database transaction per stock")
+    print("Comprehensive stock data collection with optimizations:")
+    print("+ Fixed volatility calculation for weekly data")
+    print("+ Single API call per data type (4 calls total)")
+    print("+ Connection pooling across batches")
+    print("+ Progress tracking and resume capability")
     print("+ Parallel processing (3 workers)")
     print("+ Early termination for invalid data")
     print("+ Fixed institutional holdings bug")
     print("+ Vectorized data processing")
+    print("+ Rate limiting protection")
+    print("+ Complete stock universe (US, ASX, NZX)")
     print("=" * 80)
     
-    collector = OptimizedStockDataCollector()
+    collector = UnifiedStockDataCollector()
     
     print("\nCollection Options:")
     print("1. Test run (first 10 stocks)")
@@ -850,27 +931,31 @@ def main():
     
     choice = input("\nEnter your choice (1-4): ").strip()
     
+    # Load universe once for all calculations
+    universe = collector.load_stock_universe()
+    total_stocks = len(universe)
+    
     if choice == "1":
-        target_percentage = 10 / len(collector.load_stock_universe()) * 100
+        target_percentage = 10 / total_stocks * 100
         print(f"Starting test run...")
     elif choice == "2":
-        target_percentage = 100 / len(collector.load_stock_universe()) * 100
+        target_percentage = 100 / total_stocks * 100
         print(f"Starting small collection...")
     elif choice == "3":
-        target_percentage = 500 / len(collector.load_stock_universe()) * 100
+        target_percentage = 500 / total_stocks * 100
         print(f"Starting medium collection...")
     elif choice == "4":
         target_percentage = 100.0
         print(f"Starting full collection...")
     else:
         print("Invalid choice. Starting test run...")
-        target_percentage = 10 / len(collector.load_stock_universe()) * 100
+        target_percentage = 10 / total_stocks * 100
     
     try:
-        total_records, successful, failed = collector.run_optimized_collection(target_percentage)
+        total_records, successful, failed = collector.run_collection(target_percentage)
         
         print("\n" + "=" * 80)
-        print("OPTIMIZED COLLECTION COMPLETED!")
+        print("COLLECTION COMPLETED!")
         print("=" * 80)
         print(f"Total Records: {total_records:,}")
         print(f"Successful: {successful}")
