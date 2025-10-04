@@ -25,8 +25,8 @@ logging.basicConfig(
 class EnhancedBalanceSheetScraper:
     """Enhanced scraper for balance sheets and financial data"""
     
-    # Financial announcement types to target
-    FINANCIAL_TYPES = ['FLLYR', 'HALFYR', 'INTERIM', 'QUARTERLY', 'ANNUAL']
+    # Financial announcement types to target (NZX types)
+    FINANCIAL_TYPES = ['FLLYR', 'HALFYR', 'INTERIM', 'QUARTERLY', 'ANNUAL', 'FULLYR', 'FLLYR', 'RESULTS']
     
     def __init__(self, base_dir='balance_sheet_data'):
         self.base_url = 'https://announcements.nzx.com'
@@ -81,18 +81,27 @@ class EnhancedBalanceSheetScraper:
             
             for row in rows:
                 cols = row.find_all('td')
-                if len(cols) >= 6:
-                    ann_id = cols[0].text.strip()
-                    ann_ticker = cols[1].text.strip()
-                    title_link = cols[2].find('a')
-                    title = title_link.text.strip() if title_link else cols[2].text.strip()
+                if len(cols) >= 7:  # NZX has 7 columns
+                    # NZX structure: [#, id, company, title, date, type, flags]
+                    ann_id = cols[1].text.strip()      # Col 1: actual announcement ID
+                    ann_ticker = cols[2].text.strip()   # Col 2: ticker
+                    title_link = cols[3].find('a')      # Col 3: title
+                    title = title_link.text.strip() if title_link else cols[3].text.strip()
                     link = title_link.get('href') if title_link else None
-                    date_time = cols[3].text.strip()
-                    ann_type = cols[4].text.strip()
+                    date_time = cols[4].text.strip()    # Col 4: date
+                    ann_type = cols[5].text.strip()     # Col 5: type
                     
                     # Enhanced filtering for financial announcements
+                    financial_keywords = [
+                        'results', 'financial', 'annual report', 'interim', 
+                        'earnings', 'revenue', 'profit', 'balance', 'statement',
+                        'report', 'performance', 'quarterly', 'annual meeting',
+                        'annual results', 'fiscal year', 'climate statement', 
+                        'investor update', 'navigator', 'update'
+                    ]
+                    
                     if (ann_type in self.FINANCIAL_TYPES or 
-                        any(term in title.lower() for term in ['results', 'financial', 'annual report', 'interim'])):
+                        any(term in title.lower() for term in financial_keywords)):
                         
                         # If ticker specified, filter by it
                         if ticker is None or ann_ticker == ticker:

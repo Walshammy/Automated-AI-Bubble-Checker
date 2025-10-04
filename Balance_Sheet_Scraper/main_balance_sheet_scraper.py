@@ -111,8 +111,10 @@ def export_results(export_format, output_path):
             with pd.ExcelWriter(f"{output_path}/balance_sheet_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx") as writer:
                 
                 # Balance sheet data
+                import sqlite3
+                conn = sqlite3.connect(db.db_path)
                 query = "SELECT * FROM balance_sheet_data ORDER BY ticker, report_date DESC"
-                df = pd.read_sql_query(query, db.get_connection())
+                df = pd.read_sql_query(query, conn)
                 df.to_excel(writer, sheet_name='Balance_Sheet_Data', index=False)
                 
                 # Summary by ticker

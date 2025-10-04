@@ -164,7 +164,7 @@ class FinancialStatementProcessor:
         Extract comprehensive financial data from PDF
         """
         try:
-            with pdfplumber.open(pdf_path) as pdf:
+            with pdfplumber.open(pdf_path, password=None) as pdf:
                 all_text = ""
                 all_tables = []
                 
