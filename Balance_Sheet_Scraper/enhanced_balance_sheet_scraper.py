@@ -65,67 +65,122 @@ class EnhancedBalanceSheetScraper:
         
         return pd.DataFrame({'ticker': companies})
     
-    def scrape_financial_announcements(self, ticker=None, limit=500):
+    def scrape_financial_announcements(self, ticker=None, limit=500, years_back=10):
         """
-        Scrape financial announcements with improved filtering
+        Scrape financial announcements with improved filtering and historical data
         """
-        logging.info(f"Scraping financial announcements{' for ' + ticker if ticker else ''}...")
+        logging.info(f"Scraping financial announcements{' for ' + ticker if ticker else ''} (last {years_back} years)...")
         
         try:
-            response = self.session.get(self.base_url, timeout=30)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
+            # Try multiple approaches to get historical data
             announcements = []
-            rows = soup.find_all('tr')[1:limit+1]  # Skip header
             
-            for row in rows:
-                cols = row.find_all('td')
-                if len(cols) >= 7:  # NZX has 7 columns
-                    # NZX structure: [#, id, company, title, date, type, flags]
-                    ann_id = cols[1].text.strip()      # Col 1: actual announcement ID
-                    ann_ticker = cols[2].text.strip()   # Col 2: ticker
-                    title_link = cols[3].find('a')      # Col 3: title
-                    title = title_link.text.strip() if title_link else cols[3].text.strip()
-                    link = title_link.get('href') if title_link else None
-                    date_time = cols[4].text.strip()    # Col 4: date
-                    ann_type = cols[5].text.strip()     # Col 5: type
-                    
-                    # Enhanced filtering for financial announcements
-                    financial_keywords = [
-                        'results', 'financial', 'annual report', 'interim', 
-                        'earnings', 'revenue', 'profit', 'balance', 'statement',
-                        'report', 'performance', 'quarterly', 'annual meeting',
-                        'annual results', 'fiscal year', 'climate statement', 
-                        'investor update', 'navigator', 'update'
-                    ]
-                    
-                    if (ann_type in self.FINANCIAL_TYPES or 
-                        any(term in title.lower() for term in financial_keywords)):
-                        
-                        # If ticker specified, filter by it
-                        if ticker is None or ann_ticker == ticker:
-                            announcement_data = {
-                                'announcement_id': ann_id,
-                                'ticker': ann_ticker,
-                                'title': title,
-                                'announcement_url': urljoin(self.base_url, link) if link else None,
-                                'announcement_date': date_time,
-                                'announcement_type': ann_type,
-                                'exchange': 'NZX',
-                                'scraped_at': datetime.now().isoformat()
-                            }
+            # Approach 1: Get main announcements page and filter by ticker
+            try:
+                logging.info(f"Fetching main announcements page from {self.base_url}")
+                response = self.session.get(self.base_url, timeout=30)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                announcements = self._parse_announcements_page(soup, ticker)
+                
+                # If we need more data and no specific ticker, try to get more pages
+                if not ticker and len(announcements) < limit:
+                    # Try to find pagination links or load more announcements
+                    for page in range(2, min(10, limit // 50) + 1):
+                        try:
+                            # Try different pagination approaches
+                            pagination_urls = [
+                                f"{self.base_url}?page={page}",
+                                f"{self.base_url}/page/{page}",
+                                f"{self.base_url}?offset={(page-1)*50}"
+                            ]
                             
-                            # Insert into database
-                            self.db.insert_announcement(announcement_data)
-                            announcements.append(announcement_data)
+                            for url in pagination_urls:
+                                try:
+                                    logging.info(f"Trying pagination: {url}")
+                                    response = self.session.get(url, timeout=30)
+                                    response.raise_for_status()
+                                    soup = BeautifulSoup(response.content, 'html.parser')
+                                    
+                                    page_announcements = self._parse_announcements_page(soup, ticker)
+                                    if page_announcements:
+                                        announcements.extend(page_announcements)
+                                        break
+                                    else:
+                                        continue
+                                        
+                                except Exception as e:
+                                    logging.debug(f"Pagination URL failed: {url} - {e}")
+                                    continue
+                            
+                            if len(announcements) >= limit:
+                                break
+                                
+                            time.sleep(1)  # Be respectful to the server
+                            
+                        except Exception as e:
+                            logging.warning(f"Error fetching page {page}: {e}")
+                            break
+                
+            except Exception as e:
+                logging.error(f"Error fetching main page: {e}")
+                return []
             
             logging.info(f"Found {len(announcements)} financial announcements")
-            return announcements
+            return announcements[:limit]
             
         except Exception as e:
             logging.error(f"Error scraping: {e}")
             return []
+    
+    def _parse_announcements_page(self, soup, ticker=None):
+        """Parse announcements from a single page"""
+        announcements = []
+        rows = soup.find_all('tr')[1:]  # Skip header
+        
+        for row in rows:
+            cols = row.find_all('td')
+            if len(cols) >= 7:  # NZX has 7 columns
+                # NZX structure: [#, id, company, title, date, type, flags]
+                ann_id = cols[1].text.strip()      # Col 1: actual announcement ID
+                ann_ticker = cols[2].text.strip()   # Col 2: ticker
+                title_link = cols[3].find('a')      # Col 3: title
+                title = title_link.text.strip() if title_link else cols[3].text.strip()
+                link = title_link.get('href') if title_link else None
+                date_time = cols[4].text.strip()    # Col 4: date
+                ann_type = cols[5].text.strip()     # Col 5: type
+                
+                # Enhanced filtering for financial announcements
+                financial_keywords = [
+                    'results', 'financial', 'annual report', 'interim', 
+                    'earnings', 'revenue', 'profit', 'balance', 'statement',
+                    'report', 'performance', 'quarterly', 'annual meeting',
+                    'annual results', 'fiscal year', 'climate statement', 
+                    'investor update', 'navigator', 'update'
+                ]
+                
+                if (ann_type in self.FINANCIAL_TYPES or 
+                    any(term in title.lower() for term in financial_keywords)):
+                    
+                    # If ticker specified, filter by it
+                    if ticker is None or ann_ticker == ticker:
+                        announcement_data = {
+                            'announcement_id': ann_id,
+                            'ticker': ann_ticker,
+                            'title': title,
+                            'announcement_url': urljoin(self.base_url, link) if link else None,
+                            'announcement_date': date_time,
+                            'announcement_type': ann_type,
+                            'exchange': 'NZX',
+                            'scraped_at': datetime.now().isoformat()
+                        }
+                        
+                        # Insert into database
+                        self.db.insert_announcement(announcement_data)
+                        announcements.append(announcement_data)
+        
+        return announcements
     
     def get_pdf_links(self, announcement_url):
         """Extract PDF URLs with enhanced filtering"""
@@ -235,7 +290,7 @@ class EnhancedBalanceSheetScraper:
         logging.info(f"\n{'='*60}\nProcessing {ticker}\n{'='*60}")
         
         # Get announcements
-        announcements = self.scrape_financial_announcements(ticker=ticker)
+        announcements = self.scrape_financial_announcements(ticker=ticker, years_back=years_back)
         
         if not announcements:
             logging.warning(f"No financial announcements found for {ticker}")
