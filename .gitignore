@@ -3,6 +3,13 @@
 *.sqlite
 *.sqlite3
 
+# Financial data collection specific files
+data_collection/
+balance_sheet_data/
+enhanced_nzx_data/
+comprehensive_nzx_data/
+*.pdf
+
 # Data files that change frequently
 completed_tickers.json
 *.json

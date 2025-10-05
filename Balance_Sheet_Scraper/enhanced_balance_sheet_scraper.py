@@ -14,6 +14,7 @@ import re
 from urllib.parse import urljoin
 import logging
 import json
+import sqlite3
 from balance_sheet_database import BalanceSheetDatabase
 from balance_sheet_processor import FinancialStatementProcessor
 
@@ -217,11 +218,33 @@ class EnhancedBalanceSheetScraper:
                         'scraped_at': datetime.now().isoformat()
                     }
                     
-                    # Insert into database
-                    self.db.insert_announcement(announcement_data)
-                    announcements.append(announcement_data)
+                    # Check if announcement already exists to avoid duplicates
+                    if not self._announcement_exists(announcement_data):
+                        # Insert into database
+                        self.db.insert_announcement(announcement_data)
+                        announcements.append(announcement_data)
         
         return announcements
+    
+    def _announcement_exists(self, announcement_data):
+        """Check if announcement already exists in database"""
+        try:
+            conn = sqlite3.connect(self.db.db_path)
+            cursor = conn.cursor()
+            
+            # Check by ticker, title, and date to avoid duplicates
+            cursor.execute("""
+                SELECT COUNT(*) FROM financial_announcements 
+                WHERE ticker = ? AND title = ? AND announcement_date = ?
+            """, (announcement_data['ticker'], announcement_data['title'], announcement_data['announcement_date']))
+            
+            count = cursor.fetchone()[0]
+            conn.close()
+            
+            return count > 0
+        except Exception as e:
+            logging.warning(f"Error checking announcement existence: {e}")
+            return False
     
     def get_pdf_links(self, announcement_url):
         """Extract PDF URLs with enhanced filtering"""
