@@ -1,0 +1,16 @@
+COMPREHENSIVE NZX DATA COLLECTION SUMMARY
+==================================================
+Collection Date: 2025-10-05 13:28:10
+Output Directory: C:\Users\james\Downloads\AI Bubble\Automated-AI-Bubble-Checker\Balance_Sheet_Scraper\comprehensive_nzx_data
+Major Companies Processed: 32
+Extended Companies Processed: 37
+
+Collection Strategies Used:
+1. Major NZX Companies (15 years)
+2. Extended NZX Companies (10 years)
+3. All NZX Companies (15 years)
+
+Files Generated:
+- balance_sheet_report_20251005_132119.xlsx
+- balance_sheet_report_20251005_132809.xlsx
+- collection_summary_20251005_132810.txt

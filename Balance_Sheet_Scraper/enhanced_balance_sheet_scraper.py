@@ -276,9 +276,56 @@ class EnhancedBalanceSheetScraper:
                         if success:
                             results.append(financial_data)
                             logging.info(f"Successfully extracted and stored financial data")
+                            
+                            # Delete PDF file after successful data extraction
+                            try:
+                                pdf_path.unlink()  # Delete the file
+                                logging.info(f"Deleted PDF file: {pdf_path.name}")
+                            except Exception as e:
+                                logging.warning(f"Could not delete PDF file {pdf_path.name}: {e}")
+                        
                         break  # One PDF per announcement
         
         return results
+    
+    def cleanup_processed_pdfs(self, ticker=None):
+        """
+        Clean up PDF files that have been successfully processed
+        """
+        try:
+            if ticker:
+                # Clean up PDFs for specific ticker
+                ticker_dir = self.pdf_dir / ticker
+                if ticker_dir.exists():
+                    pdf_files = list(ticker_dir.glob("*.pdf"))
+                    for pdf_file in pdf_files:
+                        try:
+                            pdf_file.unlink()
+                            logging.info(f"Cleaned up PDF: {pdf_file.name}")
+                        except Exception as e:
+                            logging.warning(f"Could not delete {pdf_file.name}: {e}")
+            else:
+                # Clean up all PDFs
+                for ticker_dir in self.pdf_dir.iterdir():
+                    if ticker_dir.is_dir():
+                        pdf_files = list(ticker_dir.glob("*.pdf"))
+                        for pdf_file in pdf_files:
+                            try:
+                                pdf_file.unlink()
+                                logging.info(f"Cleaned up PDF: {pdf_file.name}")
+                            except Exception as e:
+                                logging.warning(f"Could not delete {pdf_file.name}: {e}")
+                        
+                        # Remove empty ticker directories
+                        try:
+                            if not any(ticker_dir.iterdir()):
+                                ticker_dir.rmdir()
+                                logging.info(f"Removed empty directory: {ticker_dir.name}")
+                        except Exception as e:
+                            logging.warning(f"Could not remove directory {ticker_dir.name}: {e}")
+                            
+        except Exception as e:
+            logging.error(f"Error during PDF cleanup: {e}")
     
     def build_comprehensive_dataset(self, tickers=None, save_local=True):
         """
