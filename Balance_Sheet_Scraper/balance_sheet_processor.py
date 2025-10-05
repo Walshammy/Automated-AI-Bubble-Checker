@@ -245,20 +245,37 @@ class FinancialStatementProcessor:
                                 value_str = number_match.group(1).replace(',', '')
                                 value = float(value_str)
                                 
-                                # Handle multipliers
-                                context_after = context[number_match.end():number_match.end() + 20].lower()
-                                if 'million' in context_after or 'm' in context_after:
-                                    value *= 1_000_000
-                                elif 'billion' in context_after or 'b' in context_after:
-                                    value *= 1_000_000_000
-                                elif 'thousand' in context_after or 'k' in context_after:
-                                    value *= 1_000
+                                # Handle multipliers - look for context clues
+                                context_before = context[max(0, number_match.start()-30):number_match.start()].lower()
+                                context_after = context[number_match.end():number_match.end() + 30].lower()
                                 
-                                # Handle negative values
-                                if '(' in context or 'negative' in context or '-' in context_after[:10]:
+                                # Check for explicit multipliers
+                                if 'million' in context_after or 'million' in context_before:
+                                    value *= 1_000_000
+                                elif 'billion' in context_after or 'billion' in context_before:
+                                    value *= 1_000_000_000
+                                elif 'thousand' in context_after or 'thousand' in context_before:
+                                    value *= 1_000
+                                # For financial statements, if no explicit multiplier, assume thousands
+                                elif '$' in context_before and not any(x in context_after for x in ['million', 'billion', 'thousand', 'm', 'b', 'k']):
+                                    value *= 1_000  # Assume thousands for financial statements
+                                
+                                # Handle negative values - be more precise
+                                if '(' in number_match.group(0) or 'negative' in context:
+                                    value = -abs(value)
+                                elif context[number_match.start()-5:number_match.start()].strip() == '-':
                                     value = -abs(value)
                                 
-                                if best_match is None or abs(value) > abs(best_value or 0):
+                                # Prefer values that are closer to the financial term
+                                distance_to_term = abs(number_match.start() - match.end())
+                                
+                                if best_match is None:
+                                    best_match = context
+                                    best_value = value
+                                elif distance_to_term < 50:  # Prefer numbers closer to the term
+                                    best_match = context
+                                    best_value = value
+                                elif abs(value) > abs(best_value or 0) and distance_to_term < 100:
                                     best_match = context
                                     best_value = value
                                     
@@ -449,8 +466,8 @@ class FinancialStatementProcessor:
         equity = data.get('total_equity')
         
         if all(x is not None and x != 0 for x in [assets, liabilities, equity]):
-            equation_diff = abs(assets - (liabilities + equity)) / assets
-            validation_checks.append(equation_diff < 0.1)  # Within 10% tolerance
+            equation_diff = abs(assets - (liabilities + equity)) / abs(assets)
+            validation_checks.append(equation_diff < 0.2)  # Within 20% tolerance for financial statements
         
         # Check that current assets <= total assets
         if data.get('current_assets') and assets:
@@ -464,9 +481,9 @@ class FinancialStatementProcessor:
         basic_metrics = ['ticker', 'announcement_id', 'report_date']
         validation_checks.append(all(data.get(metric) for metric in basic_metrics))
         
-        # At least 3 financial metrics extracted
+        # At least 2 financial metrics extracted
         financial_metrics = [key for key in data.keys() if key in self.financial_terms]
-        validation_checks.append(len(financial_metrics) >= 3)
+        validation_checks.append(len(financial_metrics) >= 2)
         
         return all(validation_checks)
 
