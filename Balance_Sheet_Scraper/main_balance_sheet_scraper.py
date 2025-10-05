@@ -100,7 +100,7 @@ def export_results(export_format, output_path):
         if export_format == 'csv':
             # Export all balance sheet data
             query = "SELECT * FROM balance_sheet_data ORDER BY ticker, report_date DESC"
-            df = pd.read_sql_query(query, db.get_connection())
+            df = pd.read_sql_query(query, sqlite3.connect(db.db_path))
             
             export_path = Path(output_path) / f"balance_sheet_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
             df.to_csv(export_path, index=False)
@@ -123,7 +123,7 @@ def export_results(export_format, output_path):
                 
                 # Announcements
                 query = "SELECT * FROM financial_announcements ORDER BY announcement_date DESC"
-                ann_df = pd.read_sql_query(query, db.get_connection())
+                ann_df = pd.read_sql_query(query, sqlite3.connect(db.db_path))
                 ann_df.to_excel(writer, sheet_name='Financial_Announcements', index=False)
             
             print(f"Exported comprehensive data to Excel file")
@@ -131,7 +131,7 @@ def export_results(export_format, output_path):
         elif export_format == 'json':
             # Export as JSON
             query = "SELECT * FROM balance_sheet_data ORDER BY ticker, report_date DESC"
-            df = pd.read_sql_query(query, db.get_connection())
+            df = pd.read_sql_query(query, sqlite3.connect(db.db_path))
             
             export_path = Path(output_path) / f"balance_sheet_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
             df.to_json(export_path, orient='records', indent=2, date_format='iso')

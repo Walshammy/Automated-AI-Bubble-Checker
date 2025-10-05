@@ -170,7 +170,7 @@ class FinancialStatementProcessor:
                 
                 # Extract text and tables from all pages
                 for page in pdf.pages:
-                    page_text = صفحة.extract_text() or ""
+                    page_text = page.extract_text() or ""
                     all_text += page_text + "\n"
                     
                     page_tables = page.extract_tables() or []
