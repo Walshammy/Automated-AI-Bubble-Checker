@@ -17,8 +17,15 @@ logging.basicConfig(
 class BalanceSheetDatabase:
     """Database manager for balance sheet and financial statement data"""
     
-    def __init__(self, db_path: str = "../data_collection/unified_stock_data.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        if db_path is None:
+            # Use absolute path to ensure it works from any directory
+            import os
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            parent_dir = os.path.dirname(current_dir)
+            self.db_path = os.path.join(parent_dir, "data_collection", "unified_stock_data.db")
+        else:
+            self.db_path = db_path
         self.init_tables()
     
     def init_tables(self):

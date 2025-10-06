@@ -11,7 +11,6 @@ from pathlib import Path
 import sys
 
 # Import our modules
-from enhanced_balance_sheet_scraper import EnhancedBalanceSheetScraper
 from balance_sheet_database import BalanceSheetDatabase
 
 # Set up logging
@@ -45,6 +44,9 @@ def parse_arguments():
     
     parser.add_argument('--database-stats', action='store_true',
                         help='Show database statistics only')
+    
+    parser.add_argument('--process-existing', action='store_true',
+                        help='Process existing PDFs instead of scraping web')
     
     parser.add_argument('--export', choices=['csv', 'excel', 'json'], default=None,
                         help='Export results to file')
@@ -151,130 +153,179 @@ def get_completed_tickers():
     
     return set(completed_df['ticker'].unique())
 
+def process_existing_pdfs(output_dir):
+    """Process all existing PDFs in the pdfs directory"""
+    
+    print("PROCESSING EXISTING PDFs")
+    print("=" * 60)
+    
+    # Initialize database and processor
+    db = BalanceSheetDatabase()
+    from balance_sheet_processor import FinancialStatementProcessor
+    processor = FinancialStatementProcessor()
+    
+    # Get the PDFs directory
+    pdfs_dir = Path(output_dir) / "pdfs"
+    
+    if not pdfs_dir.exists():
+        print(f"PDFs directory not found: {pdfs_dir}")
+        return []
+    
+    # Get all company directories
+    company_dirs = [d for d in pdfs_dir.iterdir() if d.is_dir()]
+    
+    print(f"Found {len(company_dirs)} companies with PDFs")
+    
+    # Progress tracking
+    total_companies = len(company_dirs)
+    processed_companies = 0
+    successful_companies = 0
+    total_records_extracted = 0
+    failed_companies = []
+    results = []
+    
+    start_time = datetime.now()
+    
+    for i, company_dir in enumerate(company_dirs, 1):
+        ticker = company_dir.name
+        print(f"\n[{i}/{total_companies}] Processing {ticker}...")
+        print("-" * 50)
+        
+        try:
+            # Get all PDF files in this company's directory
+            pdf_files = list(company_dir.glob("*.pdf"))
+            
+            if not pdf_files:
+                print(f"   [WARN] No PDF files found in {ticker} directory")
+                continue
+            
+            print(f"   [INFO] Found {len(pdf_files)} PDF files")
+            
+            company_records = 0
+            
+            for j, pdf_file in enumerate(pdf_files, 1):
+                print(f"   [PROC] Processing PDF {j}/{len(pdf_files)}: {pdf_file.name[:50]}...")
+                
+                try:
+                    # Extract financial data from PDF
+                    financial_data = processor.extract_comprehensive_financial_data(
+                        pdf_path=pdf_file,
+                        ticker=ticker,
+                        announcement_id=f"{ticker}_{pdf_file.stem}",
+                        report_date=None,  # Will be extracted from PDF
+                        report_type="PDF"  # Default type
+                    )
+                    
+                    if financial_data:
+                        # Insert into database
+                        success = db.insert_balance_sheet_data(financial_data)
+                        if success:
+                            company_records += 1
+                            total_records_extracted += 1
+                            results.append(financial_data)
+                            print(f"      [OK] Financial data extracted successfully")
+                            
+                            # Show extracted data summary
+                            if financial_data.get('revenue'):
+                                print(f"         Revenue: ${financial_data['revenue']:,.0f}")
+                            if financial_data.get('total_assets'):
+                                print(f"         Total Assets: ${financial_data['total_assets']:,.0f}")
+                            if financial_data.get('net_income'):
+                                print(f"         Net Income: ${financial_data['net_income']:,.0f}")
+                        else:
+                            print(f"      [ERROR] Failed to store financial data in database")
+                    else:
+                        print(f"      [WARN] No financial data could be extracted from PDF")
+                
+                except Exception as e:
+                    print(f"      [ERROR] Error processing PDF: {str(e)}")
+                    logging.error(f"Error processing {pdf_file}: {e}")
+                    continue
+            
+            if company_records > 0:
+                successful_companies += 1
+                print(f"   [SUCCESS] {ticker}: Successfully extracted {company_records} financial records")
+            else:
+                print(f"   [WARN] {ticker}: No financial records extracted")
+            
+            processed_companies += 1
+            
+            # Progress update every 5 companies
+            if i % 5 == 0 or i == total_companies:
+                elapsed_time = datetime.now() - start_time
+                avg_time_per_company = elapsed_time.total_seconds() / i
+                remaining_companies = total_companies - i
+                estimated_remaining_time = remaining_companies * avg_time_per_company
+                
+                print(f"\n[PROGRESS] UPDATE ({i}/{total_companies})")
+                print(f"   Successfully processed: {successful_companies}/{processed_companies}")
+                print(f"   Total records extracted: {total_records_extracted:,}")
+                print(f"   Elapsed time: {elapsed_time}")
+                print(f"   Estimated remaining time: {estimated_remaining_time/60:.1f} minutes")
+                print(f"   Success rate: {successful_companies/processed_companies*100:.1f}%")
+            
+            # Small delay between companies
+            import time
+            time.sleep(1)
+            
+        except Exception as e:
+            failed_companies.append(ticker)
+            print(f"[ERROR] {ticker}: Error - {str(e)}")
+            logging.error(f"Error processing {ticker}: {e}")
+            processed_companies += 1
+            continue
+    
+    # Final summary
+    end_time = datetime.now()
+    total_time = end_time - start_time
+    
+    print(f"\n{'='*60}")
+    print(f"PDF PROCESSING COMPLETE!")
+    print(f"{'='*60}")
+    print(f"Total companies processed: {processed_companies}/{total_companies}")
+    print(f"Successful companies: {successful_companies}")
+    print(f"Failed companies: {len(failed_companies)}")
+    print(f"Total financial records extracted: {total_records_extracted:,}")
+    print(f"Total processing time: {total_time}")
+    print(f"Average time per company: {total_time.total_seconds()/processed_companies:.1f} seconds")
+    print(f"Success rate: {successful_companies/processed_companies*100:.1f}%")
+    
+    if failed_companies:
+        print(f"\nFailed companies: {', '.join(failed_companies)}")
+    
+    return results
+
 def main():
     """Main orchestrator function"""
     args = parse_arguments()
     
     print_banner()
     
-    # Initialize scraper
-    scraper = EnhancedBalanceSheetScraper(base_dir=args.output_dir)
-    
     # If only showing stats, do that and exit
     if args.database_stats:
         show_database_stats()
         return
     
-    # Handle resume functionality
-    if args.resume:
-        completed_tickers = get_completed_tickers()
-        if completed_tickers:
-            print(f"Found {len(completed_tickers)} already processed tickers: {sorted(completed_tickers)}")
-            
-            if args.tickers:
-                # Remove already completed tickers from the list
-                args.tickers = [t for t in args.tickers if t not in completed_tickers]
-                if not args.tickers:
-                    print("All specified tickers have been processed!")
-                    return
-                print(f"Processing remaining tickers: {args.tickers}")
-    
-    # Get tickers to process
-    if args.tickers:
-        tickers_to_process = args.tickers
-        logging.info(f"Processing specified tickers: {tickers_to_process}")
-    else:
-        # Get all NZSX companies
-        companies_df = scraper.get_nzsx_companies()
-        tickers_to_process = companies_df['ticker'].tolist()
+    # If processing existing PDFs, do that and exit
+    if args.process_existing:
+        results = process_existing_pdfs(args.output_dir)
         
-        if args.resume:
-            # Remove completed tickers
-            completed_tickers = get_completed_tickers()
-            tickers_to_process = [t for t in tickers_to_process if t not in completed_tickers]
-            
-        logging.info(f"Processing all {len(tickers_to_process)} NZSX companies")
-    
-    if not tickers_to_process:
-        print("No tickers to process!")
+        # Export if requested
+        if args.export:
+            export_results(args.export, args.output_dir)
+        
+        # Update database stats
+        print("\nUpdated Database Statistics:")
+        show_database_stats()
+        
+        logging.info(f"PDF processing completed at {datetime.now()}")
         return
     
-    print(f"Processing {len(tickers_to_process)} tickers")
-    print(f"Years to retrieve: {args.years}")
-    print(f"Exchange: {args.exchange}")
-    
-    if args.dry_run:
-        print("DRY RUN MODE - No actual downloads will occur")
-    
-    # Process each ticker
-    successful = 0
-    failed = 0
-    results = []
-    
-    for i, ticker in enumerate(tickers_to_process, 1):
-        try:
-            logging.info(f"\n{'='*60}")
-            logging.info(f"Processing {ticker} ({i}/{len(tickers_to_process)})")
-            logging.info(f"{'='*60}")
-            
-            if args.dry_run:
-                logging.info(f"DRY RUN: Would process {ticker}")
-                continue
-            
-            # Process the ticker
-            ticker_results = scraper.process_company_financials(ticker, years_back=args.years)
-            
-            if ticker_results:
-                results.extend(ticker_results)
-                successful += 1
-                logging.info(f"✓ Successfully processed {ticker}: {len(ticker_results)} records")
-            else:
-                logging.warning(f"✗ No data extracted for {ticker}")
-                failed += 1
-            
-            # Progress update
-            if i % 5 == 0:
-                logging.info(f"Progress: {i}/{len(tickers_to_process)} completed. Success: {successful}, Failed: {failed}")
-            
-            # Small delay to be respectful
-            import time
-            time.sleep(2)
-            
-        except Exception as e:
-            logging.error(f"Error processing {ticker}: {e}")
-            failed += 1
-    
-    # Final summary
-    print(f"\n{'='*80}")
-    print("SCRAPING COMPLETE")
-    print(f"{'='*80}")
-    print(f"Total Processed: {successful + failed}")
-    print(f"Successful: {successful}")
-    print(f"Failed: {failed}")
-    print(f"Success Rate: {successful/(successful + failed)*100:.1f}%" if (successful + failed) > 0 else "0%")
-    
-    if results:
-        print(f"Total Records Extracted: {len(results)}")
-        
-        # Show top performers
-        ticker_counts = {}
-        for result in results:
-            ticker = result['ticker']
-            ticker_counts[ticker] = ticker_counts.get(ticker, 0) + 1
-        
-        print(f"\nTop 5 Companies by Records:")
-        for ticker, count in sorted(ticker_counts.items(), key=lambda x: x[1], reverse=True)[:5]:
-            print(f"  {ticker}: {count} records")
-    
-    # Export if requested
-    if args.export:
-        export_results(args.export, args.output_dir)
-    
-    # Update database stats
-    print("\nUpdated Database Statistics:")
-    show_database_stats()
-    
-    logging.info(f"Balance sheet scraping completed at {datetime.now()}")
+    # Web scraping is currently disabled due to NZX website changes
+    print("Web scraping mode is currently disabled due to NZX website structure changes.")
+    print("Please use --process-existing to process existing PDFs instead.")
+    print("Or use --database-stats to view current data.")
+    return
 
 if __name__ == "__main__":
     main()

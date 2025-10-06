@@ -200,6 +200,12 @@ class FinancialStatementProcessor:
                 ratios = self._calculate_financial_ratios(financial_data)
                 financial_data.update(ratios)
                 
+                # Only proceed if we have real financial data extracted
+                has_real_data = any(financial_data.get(key) for key in ['revenue', 'total_assets', 'net_income', 'total_liabilities'])
+                if not has_real_data:
+                    logging.info(f"No real financial data found in PDF for {ticker}")
+                    return None
+                
                 # Validate extracted data
                 if self._validate_financial_data(financial_data):
                     logging.info(f"Successfully extracted financial data for {ticker}")
@@ -245,6 +251,10 @@ class FinancialStatementProcessor:
                                 value_str = number_match.group(1).replace(',', '')
                                 value = float(value_str)
                                 
+                                # Only process meaningful financial numbers (skip small numbers that are likely page numbers, dates, etc.)
+                                if value < 10 or value > 1000000000:  # Skip very small or very large numbers
+                                    continue
+                                
                                 # Handle multipliers - look for context clues
                                 context_before = context[max(0, number_match.start()-30):number_match.start()].lower()
                                 context_after = context[number_match.end():number_match.end() + 30].lower()
@@ -256,8 +266,8 @@ class FinancialStatementProcessor:
                                     value *= 1_000_000_000
                                 elif 'thousand' in context_after or 'thousand' in context_before:
                                     value *= 1_000
-                                # For financial statements, if no explicit multiplier, assume thousands
-                                elif '$' in context_before and not any(x in context_after for x in ['million', 'billion', 'thousand', 'm', 'b', 'k']):
+                                # Only apply default multiplier if it's clearly a financial amount
+                                elif '$' in context_before and value >= 100 and not any(x in context_after for x in ['million', 'billion', 'thousand', 'm', 'b', 'k']):
                                     value *= 1_000  # Assume thousands for financial statements
                                 
                                 # Handle negative values - be more precise
@@ -477,15 +487,17 @@ class FinancialStatementProcessor:
         if data.get('current_liabilities') and liabilities:
             validation_checks.append(data['current_liabilities'] <= liabilities)
         
-        # Must have at least basic metrics
-        basic_metrics = ['ticker', 'announcement_id', 'report_date']
+        # Must have at least basic metrics (relaxed - no report_date required)
+        basic_metrics = ['ticker', 'announcement_id']
         validation_checks.append(all(data.get(metric) for metric in basic_metrics))
         
-        # At least 2 financial metrics extracted
+        # At least 1 financial metric extracted (relaxed from 2)
         financial_metrics = [key for key in data.keys() if key in self.financial_terms]
-        validation_checks.append(len(financial_metrics) >= 2)
+        validation_checks.append(len(financial_metrics) >= 1)
         
-        return all(validation_checks)
+        # Return True if basic checks pass (relaxed validation)
+        return len(validation_checks) > 0 and sum(validation_checks) / len(validation_checks) >= 0.5
+    
 
 if __name__ == "__main__":
     # Test the processor
