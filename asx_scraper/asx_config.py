@@ -4,9 +4,8 @@ Beta version for testing ASX announcement scraping
 """
 import os
 
-# API Configuration - Official ASX JSON API
-ASX_API_BASE = "https://www.asx.com.au/asx/1/company/{ticker}/announcements"
-ASX_ANNOUNCEMENTS_URL = "https://www.asx.com.au/asx/1/company/{ticker}/announcements"
+# ASX Configuration - Selenium-based scraping
+ASX_ANNOUNCEMENTS_URL = "https://www.asx.com.au/asx/v2/statistics/announcements.do"
 DEFAULT_COUNT = 200  # Number of announcements to fetch per company
 
 # File Paths

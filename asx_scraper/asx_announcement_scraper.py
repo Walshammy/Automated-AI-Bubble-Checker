@@ -1,6 +1,6 @@
 """
 Main ASX Announcement Scraper
-Updated to use Official ASX JSON API instead of web scraping
+Updated to use Selenium for JavaScript form handling
 Based on the successful comprehensive_nzx_scraper.py approach
 """
 import requests
@@ -12,6 +12,17 @@ from tqdm import tqdm
 import pandas as pd
 import json
 import re
+
+# Selenium imports
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from webdriver_manager.chrome import ChromeDriverManager
+from bs4 import BeautifulSoup
 
 import asx_config as config
 from asx_database import ASXDatabase
@@ -58,94 +69,199 @@ class ASXAnnouncementScraper:
     
     def fetch_announcements(self, ticker: str, count: int = config.DEFAULT_COUNT) -> Optional[List[Dict]]:
         """
-        Fetch announcements for a specific ticker from ASX API
+        Fetch announcements for a specific ticker using Selenium
         
         Args:
             ticker: ASX ticker code (e.g., 'CBA', 'BHP')
-            count: Number of announcements to fetch
+            count: Number of announcements to fetch (not used in Selenium approach)
         
         Returns:
             List of announcement dictionaries or None if error
         """
-        url = config.ASX_API_BASE.format(ticker=ticker.upper())
-        params = {'count': count}
+        driver = None
         
         for attempt in range(config.MAX_RETRIES):
             try:
                 self.logger.debug(f"Fetching announcements for {ticker} (attempt {attempt + 1})")
                 
-                response = self.session.get(
-                    url, 
-                    params=params, 
-                    timeout=config.REQUEST_TIMEOUT
+                # Setup Chrome driver with headless mode
+                chrome_options = Options()
+                chrome_options.add_argument('--headless')  # Run without GUI
+                chrome_options.add_argument('--no-sandbox')
+                chrome_options.add_argument('--disable-dev-shm-usage')
+                chrome_options.add_argument('--disable-gpu')
+                chrome_options.add_argument('--window-size=1920,1080')
+                chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+                
+                driver = webdriver.Chrome(
+                    service=Service(ChromeDriverManager().install()),
+                    options=chrome_options
                 )
-                response.raise_for_status()
                 
-                # Parse JSON response (NOT HTML!)
-                data = response.json()
+                # Navigate to ASX announcements page with ticker parameter
+                url = f"{config.ASX_ANNOUNCEMENTS_URL}?by=asxCode&asxCode={ticker.upper()}&timeframe=Y&period=Y3"
+                driver.get(url)
                 
-                if 'data' in data:
-                    self.logger.debug(f"Found {len(data['data'])} announcements for {ticker}")
-                    return data['data']
-                else:
-                    self.logger.warning(f"Unexpected response format for {ticker}")
-                    return None
+                # Wait for page to load
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+                
+                # Wait a bit more for JavaScript to execute
+                time.sleep(2)
+                
+                # Parse the page HTML (now with JavaScript executed)
+                soup = BeautifulSoup(driver.page_source, 'html.parser')
+                announcements = self.parse_announcements_table(soup, ticker)
+                
+                self.logger.debug(f"Found {len(announcements)} announcements for {ticker}")
+                return announcements
                     
-            except requests.exceptions.RequestException as e:
+            except (TimeoutException, NoSuchElementException) as e:
                 if attempt < config.MAX_RETRIES - 1:
                     wait_time = 2 ** attempt
-                    self.logger.warning(f"Request failed for {ticker}: {e}. Retrying in {wait_time}s...")
+                    self.logger.warning(f"Selenium timeout for {ticker} (attempt {attempt + 1}): {e}. Retrying in {wait_time}s...")
                     time.sleep(wait_time)
                     continue
                 else:
                     self.logger.error(f"Failed to fetch {ticker} after {config.MAX_RETRIES} attempts: {e}")
                     return None
+            except Exception as e:
+                if attempt < config.MAX_RETRIES - 1:
+                    wait_time = 2 ** attempt
+                    self.logger.warning(f"Unexpected error for {ticker} (attempt {attempt + 1}): {e}. Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    self.logger.error(f"Failed to fetch {ticker} after {config.MAX_RETRIES} attempts: {e}")
+                    return None
+            finally:
+                if driver:
+                    driver.quit()
         
         return None
     
-    def parse_announcement(self, raw_ann: Dict, ticker: str) -> Dict:
+    def parse_announcements_table(self, soup: BeautifulSoup, ticker: str) -> List[Dict]:
         """
-        Parse raw announcement data from API into standardized format
+        Parse announcements from ASX HTML table
         
         Args:
-            raw_ann: Raw announcement dict from API
+            soup: BeautifulSoup object of the page
             ticker: Company ticker
         
         Returns:
-            Parsed announcement dictionary
+            List of announcement dictionaries
         """
-        # Parse date from API format
-        date_str = raw_ann.get('document_release_date', '')
+        announcements = []
+        
         try:
-            # Remove timezone info for simplicity
-            date_str_clean = date_str.replace('+1000', '').replace('+1100', '')
-            announcement_date = datetime.fromisoformat(date_str_clean)
-        except:
-            announcement_date = None
-        
-        title = raw_ann.get('header', '')
-        url = raw_ann.get('url', '')
-        
-        # Generate PDF filename from URL
-        pdf_filename = None
-        if url:
-            pdf_filename = url.split('/')[-1]
-        
-        # Generate unique announcement ID
-        announcement_id = f"{ticker}_{pdf_filename}" if pdf_filename else f"{ticker}_{hash(title) % 1000000}"
-        
-        return {
-            'announcement_id': announcement_id,
-            'ticker': ticker.upper(),
-            'company_name': None,
-            'announcement_date': announcement_date,
-            'title': title,
-            'url': url,
-            'file_size': raw_ann.get('size'),
-            'market_sensitive': raw_ann.get('market_sensitive', False),
-            'is_financial_report': self.is_financial_report(title),
-            'pdf_filename': pdf_filename
-        }
+            # Look for announcement tables - ASX uses different structures
+            tables = soup.find_all('table')
+            
+            for table in tables:
+                rows = table.find_all('tr')
+                
+                # Skip tables with too few rows (likely navigation/forms)
+                if len(rows) < 5:
+                    continue
+                
+                # Look for rows with multiple cells (potential announcements)
+                for row in rows:
+                    cells = row.find_all(['td', 'th'])
+                    if len(cells) < 3:
+                        continue
+                    
+                    try:
+                        # Extract data from cells
+                        date_cell = cells[0] if len(cells) > 0 else None
+                        title_cell = cells[1] if len(cells) > 1 else None
+                        link_cell = cells[2] if len(cells) > 2 else None
+                        
+                        if not title_cell:
+                            continue
+                        
+                        title = title_cell.get_text(strip=True)
+                        if not title or len(title) < 5:  # Skip empty or very short titles
+                            continue
+                        
+                        # Skip header rows
+                        if title.lower() in ['date', 'title', 'document', 'announcement']:
+                            continue
+                        
+                        # Extract date
+                        announcement_date = None
+                        if date_cell:
+                            date_text = date_cell.get_text(strip=True)
+                            announcement_date = self.parse_date(date_text)
+                        
+                        # Extract PDF URL
+                        pdf_url = None
+                        pdf_filename = None
+                        if link_cell:
+                            link = link_cell.find('a', href=True)
+                            if link:
+                                pdf_url = link['href']
+                                if not pdf_url.startswith('http'):
+                                    pdf_url = 'https://www.asx.com.au' + pdf_url
+                                pdf_filename = pdf_url.split('/')[-1]
+                        
+                        # Generate announcement ID
+                        announcement_id = f"{ticker}_{hash(title) % 1000000}"
+                        
+                        announcement = {
+                            'announcement_id': announcement_id,
+                            'ticker': ticker.upper(),
+                            'company_name': None,
+                            'announcement_date': announcement_date,
+                            'title': title,
+                            'url': pdf_url or '',
+                            'file_size': None,
+                            'market_sensitive': False,
+                            'is_financial_report': self.is_financial_report(title),
+                            'pdf_filename': pdf_filename
+                        }
+                        
+                        announcements.append(announcement)
+                        
+                    except Exception as e:
+                        self.logger.debug(f"Error parsing announcement row for {ticker}: {e}")
+                        continue
+                        
+        except Exception as e:
+            self.logger.error(f"Error parsing announcements table for {ticker}: {e}")
+            
+        return announcements
+    
+    def parse_date(self, date_text: str) -> Optional[datetime]:
+        """Parse date text into datetime object"""
+        try:
+            # Handle various date formats from ASX
+            date_patterns = [
+                '%d/%m/%Y',      # DD/MM/YYYY
+                '%d-%m-%Y',      # DD-MM-YYYY
+                '%Y-%m-%d',      # YYYY-MM-DD
+                '%d %b %Y',      # DD Mon YYYY
+                '%d %B %Y',      # DD Month YYYY
+                '%b %d, %Y',     # Mon DD, YYYY
+                '%B %d, %Y',     # Month DD, YYYY
+            ]
+            
+            for pattern in date_patterns:
+                try:
+                    return datetime.strptime(date_text.strip(), pattern)
+                except ValueError:
+                    continue
+            
+            # Try to extract date from text using regex
+            date_match = re.search(r'(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})', date_text)
+            if date_match:
+                day, month, year = date_match.groups()
+                return datetime(int(year), int(month), int(day))
+                
+        except Exception as e:
+            self.logger.debug(f"Could not parse date '{date_text}': {e}")
+            
+        return None
     
     def scrape_ticker(self, ticker: str, company_name: str = None) -> int:
         """Scrape all announcements for a single ticker"""
@@ -166,10 +282,8 @@ class ASXAnnouncementScraper:
         new_count = 0
         financial_count = 0
         
-        # Parse each raw announcement from API
-        for raw_ann in raw_announcements:
-            # Parse the raw API data
-            announcement = self.parse_announcement(raw_ann, ticker)
+        # Process each announcement from HTML parsing
+        for announcement in raw_announcements:
             
             # Skip if too old (only if cutoff_date is set)
             if cutoff_date and announcement['announcement_date'] and announcement['announcement_date'] < cutoff_date:
@@ -294,7 +408,7 @@ def main():
     
     # Show final statistics
     stats = scraper.get_statistics()
-    print("\n📊 Final Statistics:")
+    print("\nFinal Statistics:")
     for key, value in stats.items():
         print(f"  {key}: {value}")
 
