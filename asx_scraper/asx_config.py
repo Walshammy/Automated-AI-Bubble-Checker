@@ -4,10 +4,10 @@ Beta version for testing ASX announcement scraping
 """
 import os
 
-# API Configuration - Updated based on research
-ASX_API_BASE = "https://www.asx.com.au/asx/v2/statistics/announcements.do?asxCode={ticker}"
-ASX_ANNOUNCEMENTS_URL = "https://www.asx.com.au/asx/v2/statistics/announcements.do?asxCode={ticker}"
-DEFAULT_COUNT = 100  # Number of announcements to fetch per company
+# API Configuration - Official ASX JSON API
+ASX_API_BASE = "https://www.asx.com.au/asx/1/company/{ticker}/announcements"
+ASX_ANNOUNCEMENTS_URL = "https://www.asx.com.au/asx/1/company/{ticker}/announcements"
+DEFAULT_COUNT = 200  # Number of announcements to fetch per company
 
 # File Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

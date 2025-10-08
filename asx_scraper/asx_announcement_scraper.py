@@ -1,10 +1,9 @@
 """
 Main ASX Announcement Scraper
-Beta version - Fetches financial announcements from ASX API
+Updated to use Official ASX JSON API instead of web scraping
 Based on the successful comprehensive_nzx_scraper.py approach
 """
 import requests
-from bs4 import BeautifulSoup
 import time
 import logging
 from datetime import datetime, timedelta
@@ -28,7 +27,7 @@ logging.basicConfig(
 )
 
 class ASXAnnouncementScraper:
-    """ASX announcement scraper - adapted from successful NZX approach"""
+    """ASX announcement scraper using official JSON API - adapted from successful NZX approach"""
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -50,7 +49,7 @@ class ASXAnnouncementScraper:
         self.current_delay = self.base_delay
         self.consecutive_errors = 0
         
-        self.logger.info("ASX Announcement Scraper initialized")
+        self.logger.info("ASX Announcement Scraper initialized (API version)")
     
     def is_financial_report(self, title: str) -> bool:
         """Check if announcement is a financial report - enhanced from NZX approach"""
@@ -59,169 +58,100 @@ class ASXAnnouncementScraper:
     
     def fetch_announcements(self, ticker: str, count: int = config.DEFAULT_COUNT) -> Optional[List[Dict]]:
         """
-        Fetch announcements for a specific ticker from ASX website
+        Fetch announcements for a specific ticker from ASX API
         
         Args:
             ticker: ASX ticker code (e.g., 'CBA', 'BHP')
-            count: Number of announcements to fetch (not used in web scraping)
+            count: Number of announcements to fetch
         
         Returns:
             List of announcement dictionaries or None if error
         """
-        url = config.ASX_ANNOUNCEMENTS_URL.format(ticker=ticker.upper())
+        url = config.ASX_API_BASE.format(ticker=ticker.upper())
+        params = {'count': count}
         
         for attempt in range(config.MAX_RETRIES):
             try:
                 self.logger.debug(f"Fetching announcements for {ticker} (attempt {attempt + 1})")
                 
-                response = self.session.get(url, timeout=config.REQUEST_TIMEOUT)
+                response = self.session.get(
+                    url, 
+                    params=params, 
+                    timeout=config.REQUEST_TIMEOUT
+                )
                 response.raise_for_status()
                 
-                soup = BeautifulSoup(response.content, 'html.parser')
-                announcements = self.parse_announcements_page(soup, ticker)
+                # Parse JSON response (NOT HTML!)
+                data = response.json()
                 
-                self.logger.debug(f"Found {len(announcements)} announcements for {ticker}")
-                return announcements
+                if 'data' in data:
+                    self.logger.debug(f"Found {len(data['data'])} announcements for {ticker}")
+                    return data['data']
+                else:
+                    self.logger.warning(f"Unexpected response format for {ticker}")
+                    return None
                     
             except requests.exceptions.RequestException as e:
                 if attempt < config.MAX_RETRIES - 1:
                     wait_time = 2 ** attempt
-                    self.logger.warning(f"Request failed for {ticker} (attempt {attempt + 1}): {e}. Retrying in {wait_time}s...")
+                    self.logger.warning(f"Request failed for {ticker}: {e}. Retrying in {wait_time}s...")
                     time.sleep(wait_time)
                     continue
                 else:
                     self.logger.error(f"Failed to fetch {ticker} after {config.MAX_RETRIES} attempts: {e}")
-                    self.handle_rate_limiting()
                     return None
         
         return None
     
-    def parse_announcements_page(self, soup: BeautifulSoup, ticker: str) -> List[Dict]:
-        """Parse announcements from ASX webpage"""
-        announcements = []
-        
-        try:
-            # Look for announcement rows in the table
-            # ASX uses different table structures, try multiple selectors
-            table_selectors = [
-                'table tr',
-                '.announcement-row',
-                'tr[data-announcement]',
-                'tbody tr'
-            ]
-            
-            rows = []
-            for selector in table_selectors:
-                rows = soup.select(selector)
-                if rows:
-                    self.logger.debug(f"Found {len(rows)} rows using selector: {selector}")
-                    break
-            
-            if not rows:
-                self.logger.warning(f"No announcement rows found for {ticker}")
-                return announcements
-            
-            for row in rows:
-                try:
-                    cells = row.find_all(['td', 'th'])
-                    if len(cells) < 2:
-                        continue
-                    
-                    # Extract data from cells
-                    date_cell = cells[0] if len(cells) > 0 else None
-                    title_cell = cells[1] if len(cells) > 1 else None
-                    link_cell = cells[2] if len(cells) > 2 else None
-                    
-                    if not title_cell:
-                        continue
-                    
-                    title = title_cell.get_text(strip=True)
-                    if not title:
-                        continue
-                    
-                    # Extract date
-                    announcement_date = None
-                    if date_cell:
-                        date_text = date_cell.get_text(strip=True)
-                        announcement_date = self.parse_date(date_text)
-                    
-                    # Extract PDF URL
-                    pdf_url = None
-                    pdf_filename = None
-                    if link_cell:
-                        link = link_cell.find('a', href=True)
-                        if link:
-                            pdf_url = link['href']
-                            if not pdf_url.startswith('http'):
-                                pdf_url = 'https://www.asx.com.au' + pdf_url
-                            pdf_filename = pdf_url.split('/')[-1]
-                    
-                    # Generate announcement ID
-                    announcement_id = f"{ticker}_{hash(title) % 1000000}"
-                    
-                    announcement = {
-                        'announcement_id': announcement_id,
-                        'ticker': ticker.upper(),
-                        'company_name': None,
-                        'announcement_date': announcement_date,
-                        'title': title,
-                        'url': pdf_url or '',
-                        'file_size': None,
-                        'market_sensitive': False,
-                        'is_financial_report': self.is_financial_report(title),
-                        'pdf_filename': pdf_filename
-                    }
-                    
-                    announcements.append(announcement)
-                    
-                except Exception as e:
-                    self.logger.warning(f"Error parsing announcement row for {ticker}: {e}")
-                    continue
-                    
-        except Exception as e:
-            self.logger.error(f"Error parsing announcements page for {ticker}: {e}")
-            
-        return announcements
-    
-    def parse_date(self, date_text: str) -> Optional[datetime]:
-        """Parse date text into datetime object"""
-        try:
-            # Handle various date formats from ASX
-            date_patterns = [
-                '%d/%m/%Y',      # DD/MM/YYYY
-                '%d-%m-%Y',      # DD-MM-YYYY
-                '%Y-%m-%d',      # YYYY-MM-DD
-                '%d %b %Y',      # DD Mon YYYY
-                '%d %B %Y',      # DD Month YYYY
-            ]
-            
-            for pattern in date_patterns:
-                try:
-                    return datetime.strptime(date_text.strip(), pattern)
-                except ValueError:
-                    continue
-            
-            # Try to extract date from text
-            date_match = re.search(r'(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})', date_text)
-            if date_match:
-                day, month, year = date_match.groups()
-                return datetime(int(year), int(month), int(day))
-            
-            return None
-            
-        except Exception as e:
-            self.logger.warning(f"Error parsing date '{date_text}': {e}")
-            return None
-    
-    def scrape_ticker(self, ticker: str, company_name: str = None) -> int:
+    def parse_announcement(self, raw_ann: Dict, ticker: str) -> Dict:
         """
-        Scrape all announcements for a single ticker
+        Parse raw announcement data from API into standardized format
+        
+        Args:
+            raw_ann: Raw announcement dict from API
+            ticker: Company ticker
         
         Returns:
-            Number of new announcements added
+            Parsed announcement dictionary
         """
+        # Parse date from API format
+        date_str = raw_ann.get('document_release_date', '')
+        try:
+            # Remove timezone info for simplicity
+            date_str_clean = date_str.replace('+1000', '').replace('+1100', '')
+            announcement_date = datetime.fromisoformat(date_str_clean)
+        except:
+            announcement_date = None
+        
+        title = raw_ann.get('header', '')
+        url = raw_ann.get('url', '')
+        
+        # Generate PDF filename from URL
+        pdf_filename = None
+        if url:
+            pdf_filename = url.split('/')[-1]
+        
+        # Generate unique announcement ID
+        announcement_id = f"{ticker}_{pdf_filename}" if pdf_filename else f"{ticker}_{hash(title) % 1000000}"
+        
+        return {
+            'announcement_id': announcement_id,
+            'ticker': ticker.upper(),
+            'company_name': None,
+            'announcement_date': announcement_date,
+            'title': title,
+            'url': url,
+            'file_size': raw_ann.get('size'),
+            'market_sensitive': raw_ann.get('market_sensitive', False),
+            'is_financial_report': self.is_financial_report(title),
+            'pdf_filename': pdf_filename
+        }
+    
+    def scrape_ticker(self, ticker: str, company_name: str = None) -> int:
+        """Scrape all announcements for a single ticker"""
         self.logger.info(f"Scraping {ticker}...")
         
+        # Fetch from API (returns list of dicts)
         raw_announcements = self.fetch_announcements(ticker)
         
         if not raw_announcements:
@@ -236,7 +166,11 @@ class ASXAnnouncementScraper:
         new_count = 0
         financial_count = 0
         
-        for announcement in raw_announcements:
+        # Parse each raw announcement from API
+        for raw_ann in raw_announcements:
+            # Parse the raw API data
+            announcement = self.parse_announcement(raw_ann, ticker)
+            
             # Skip if too old (only if cutoff_date is set)
             if cutoff_date and announcement['announcement_date'] and announcement['announcement_date'] < cutoff_date:
                 continue
@@ -248,164 +182,121 @@ class ASXAnnouncementScraper:
                     financial_count += 1
         
         self.logger.info(f"✅ {ticker}: {new_count} new announcements ({financial_count} financial)")
-        
-        # Rate limiting
         time.sleep(self.current_delay)
         
         return new_count
     
-    def scrape_beta_tickers(self):
+    def scrape_beta_tickers(self) -> int:
         """Scrape beta test tickers"""
-        self.logger.info("=" * 60)
-        self.logger.info("ASX ANNOUNCEMENT SCRAPER - BETA TEST")
-        self.logger.info("=" * 60)
-        self.logger.info(f"Beta tickers: {', '.join(config.BETA_TICKERS)}")
-        years_text = "All time" if config.YEARS_TO_SCRAPE is None else f"{config.YEARS_TO_SCRAPE} years"
-        self.logger.info(f"Years to scrape: {years_text}")
-        self.logger.info("=" * 60)
+        self.logger.info("Starting beta test with major ASX companies...")
         
-        start_time = datetime.now()
         total_new = 0
-        successful_companies = 0
-        failed_companies = []
+        total_financial = 0
         
-        for i, ticker in enumerate(config.BETA_TICKERS, 1):
-            self.logger.info(f"[{i}/{len(config.BETA_TICKERS)}] Processing {ticker}...")
-            
+        for ticker in config.BETA_TICKERS:
             try:
-                count = self.scrape_ticker(ticker)
-                total_new += count
-                successful_companies += 1
+                new_count = self.scrape_ticker(ticker)
+                total_new += new_count
                 
-                # Progress update
-                if i % 3 == 0 or i == len(config.BETA_TICKERS):
-                    elapsed = datetime.now() - start_time
-                    avg_time = elapsed.total_seconds() / i
-                    remaining = len(config.BETA_TICKERS) - i
-                    eta = remaining * avg_time
-                    
-                    self.logger.info(f"Progress: {i}/{len(config.BETA_TICKERS)} companies")
-                    self.logger.info(f"Successful: {successful_companies}, Failed: {len(failed_companies)}")
-                    self.logger.info(f"Total announcements: {total_new}")
-                    self.logger.info(f"ETA: {eta/60:.1f} minutes")
-                
-                # Reset error counter on success
-                self.consecutive_errors = 0
-                self.current_delay = self.base_delay
+                # Get financial count for this ticker
+                financial_count = self.db.get_financial_count(ticker)
+                total_financial += financial_count
                 
             except Exception as e:
-                failed_companies.append(ticker)
-                self.logger.error(f"Error processing {ticker}: {str(e)}")
-                self.handle_rate_limiting()
+                self.logger.error(f"Error scraping {ticker}: {e}")
                 continue
         
-        # Final summary
-        end_time = datetime.now()
-        total_time = end_time - start_time
-        
-        self.logger.info("=" * 60)
-        self.logger.info("BETA SCRAPING COMPLETE!")
-        self.logger.info("=" * 60)
-        self.logger.info(f"Total companies processed: {len(config.BETA_TICKERS)}")
-        self.logger.info(f"Successful companies: {successful_companies}")
-        self.logger.info(f"Failed companies: {len(failed_companies)}")
-        self.logger.info(f"Total announcements collected: {total_new}")
-        self.logger.info(f"Total time: {total_time}")
-        self.logger.info(f"Average time per company: {total_time.total_seconds()/len(config.BETA_TICKERS):.1f} seconds")
-        
-        if failed_companies:
-            self.logger.info(f"Failed companies: {', '.join(failed_companies)}")
-        
-        # Print database statistics
-        stats = self.db.get_statistics()
-        self.logger.info("\nDatabase Statistics:")
-        for key, value in stats.items():
-            self.logger.info(f"  {key}: {value}")
-        
+        self.logger.info(f"🎯 Beta test complete: {total_new} total announcements ({total_financial} financial)")
         return total_new
     
-    def scrape_all_tickers(self, ticker_list: List[str] = None):
-        """
-        Scrape all tickers from list
+    def scrape_all_tickers(self) -> int:
+        """Scrape all ASX tickers from stock list"""
+        self.logger.info("Starting full ASX scraping...")
         
-        Args:
-            ticker_list: List of tickers, or None to load from CSV
-        """
-        # Load ticker list
-        if ticker_list is None:
-            try:
-                df = pd.read_csv(config.STOCK_LIST_PATH)
-                # Assuming CSV has columns: 'ticker' or 'code'
-                if 'ticker' in df.columns:
-                    ticker_list = df['ticker'].tolist()
-                elif 'code' in df.columns:
-                    ticker_list = df['code'].tolist()
-                else:
-                    ticker_list = df.iloc[:, 0].tolist()  # First column
-            except FileNotFoundError:
-                self.logger.error(f"Stock list not found: {config.STOCK_LIST_PATH}")
-                return
-        
-        self.logger.info(f"\n{'='*60}")
-        self.logger.info(f"ASX ANNOUNCEMENT SCRAPER")
-        self.logger.info(f"{'='*60}")
-        self.logger.info(f"Total companies: {len(ticker_list)}")
-        years_text = "All time" if config.YEARS_TO_SCRAPE is None else f"{config.YEARS_TO_SCRAPE} years"
-        self.logger.info(f"Years to scrape: {years_text}")
-        self.logger.info(f"{'='*60}\n")
+        # Load stock list
+        try:
+            df = pd.read_csv(config.STOCK_LIST_PATH)
+            tickers = df['Ticker'].tolist()
+            self.logger.info(f"Loaded {len(tickers)} tickers from stock list")
+        except Exception as e:
+            self.logger.error(f"Error loading stock list: {e}")
+            return 0
         
         total_new = 0
+        total_financial = 0
         
-        for ticker in tqdm(ticker_list, desc="Scraping tickers"):
-            count = self.scrape_ticker(ticker)
-            total_new += count
+        # Progress bar
+        with tqdm(total=len(tickers), desc="Scraping ASX tickers") as pbar:
+            for ticker in tickers:
+                try:
+                    new_count = self.scrape_ticker(ticker)
+                    total_new += new_count
+                    
+                    # Get financial count for this ticker
+                    financial_count = self.db.get_financial_count(ticker)
+                    total_financial += financial_count
+                    
+                    pbar.set_postfix({
+                        'New': total_new,
+                        'Financial': total_financial,
+                        'Current': ticker
+                    })
+                    
+                except Exception as e:
+                    self.logger.error(f"Error scraping {ticker}: {e}")
+                    continue
+                
+                pbar.update(1)
         
-        self.logger.info(f"\n{'='*60}")
-        self.logger.info(f"SCRAPING COMPLETE")
-        self.logger.info(f"{'='*60}")
-        self.logger.info(f"Total new announcements: {total_new}")
-        
-        # Print statistics
-        stats = self.db.get_statistics()
-        self.logger.info(f"\nDatabase Statistics:")
-        for key, value in stats.items():
-            self.logger.info(f"  {key}: {value}")
+        self.logger.info(f"🎯 Full scraping complete: {total_new} total announcements ({total_financial} financial)")
+        return total_new
     
     def handle_rate_limiting(self):
-        """Handle rate limiting by increasing delay - from NZX approach"""
+        """Handle rate limiting with exponential backoff"""
         self.consecutive_errors += 1
         self.current_delay = min(self.base_delay * (2 ** self.consecutive_errors), self.max_delay)
-        self.logger.warning(f"Rate limiting detected. Increasing delay to {self.current_delay}s")
+        self.logger.warning(f"Rate limiting: waiting {self.current_delay}s")
         time.sleep(self.current_delay)
-
+    
+    def get_statistics(self) -> Dict:
+        """Get scraping statistics"""
+        return self.db.get_statistics()
 
 def main():
-    """Main entry point"""
+    """Main function for command line usage"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='ASX Announcement Scraper - Beta Version')
-    parser.add_argument('--beta', action='store_true', default=True,
-                        help='Run beta test with predefined tickers (default)')
-    parser.add_argument('--tickers', nargs='+', default=None,
-                        help='Specific tickers to scrape')
+    parser = argparse.ArgumentParser(description='ASX Announcement Scraper (API Version)')
+    parser.add_argument('--beta', action='store_true', help='Run beta test with major companies')
+    parser.add_argument('--ticker', '-t', type=str, help='Scrape specific ticker')
     parser.add_argument('--years', '-y', type=int, default=config.YEARS_TO_SCRAPE,
                         help=f'Number of years of data to retrieve (default: {config.YEARS_TO_SCRAPE or "all time"})')
     
     args = parser.parse_args()
     
+    # Update config if years specified
+    if args.years != config.YEARS_TO_SCRAPE:
+        config.YEARS_TO_SCRAPE = args.years
+        years_text = "All time" if config.YEARS_TO_SCRAPE is None else f"{config.YEARS_TO_SCRAPE} years"
+        print(f"Years to scrape: {years_text}")
+    
     scraper = ASXAnnouncementScraper()
     
-    if args.beta:
+    if args.ticker:
+        # Scrape specific ticker
+        scraper.scrape_ticker(args.ticker)
+    elif args.beta:
         # Run beta test
         scraper.scrape_beta_tickers()
-    elif args.tickers:
-        # Scrape specific tickers
-        for ticker in args.tickers:
-            scraper.scrape_ticker(ticker)
     else:
-        # Scrape all tickers from CSV
+        # Run full scraping
         scraper.scrape_all_tickers()
-
+    
+    # Show final statistics
+    stats = scraper.get_statistics()
+    print("\n📊 Final Statistics:")
+    for key, value in stats.items():
+        print(f"  {key}: {value}")
 
 if __name__ == "__main__":
     main()
