@@ -44,6 +44,7 @@ class ASXDatabase:
                 file_size TEXT,
                 market_sensitive BOOLEAN,
                 is_financial_report BOOLEAN,
+                is_balance_sheet BOOLEAN DEFAULT FALSE,
                 download_status TEXT DEFAULT 'pending',
                 exchange TEXT DEFAULT 'ASX',
                 scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -153,8 +154,8 @@ class ASXDatabase:
             cursor.execute('''
                 INSERT OR IGNORE INTO asx_announcements 
                 (announcement_id, ticker, company_name, announcement_date, title, url, 
-                 file_size, market_sensitive, is_financial_report, pdf_filename)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 file_size, market_sensitive, is_financial_report, is_balance_sheet, pdf_filename)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 announcement['announcement_id'],
                 announcement['ticker'],
@@ -165,6 +166,7 @@ class ASXDatabase:
                 announcement.get('file_size'),
                 announcement.get('market_sensitive', False),
                 announcement.get('is_financial_report', False),
+                announcement.get('is_balance_sheet', False),
                 announcement.get('pdf_filename')
             ))
             
@@ -232,6 +234,9 @@ class ASXDatabase:
             cursor.execute('SELECT COUNT(*) FROM asx_announcements WHERE is_financial_report = 1')
             financial = cursor.fetchone()[0]
             
+            cursor.execute('SELECT COUNT(*) FROM asx_announcements WHERE is_balance_sheet = 1')
+            balance_sheets = cursor.fetchone()[0]
+            
             cursor.execute('SELECT COUNT(*) FROM asx_announcements WHERE download_status = "downloaded"')
             downloaded = cursor.fetchone()[0]
             
@@ -244,6 +249,7 @@ class ASXDatabase:
             return {
                 'total_announcements': total,
                 'financial_reports': financial,
+                'balance_sheet_reports': balance_sheets,
                 'downloaded': downloaded,
                 'companies_covered': companies,
                 'last_scraped': last_scraped
