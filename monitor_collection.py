@@ -28,8 +28,8 @@ def get_collection_progress():
         completed_tickers = set()
         print("Completed tickers: 0 (no progress file found)")
     
-    # Check database size
-    db_file = Path("data_collection/unified_stock_data.db")
+    # Check database size (using the actual database path from collector)
+    db_file = Path(r"C:\Users\james\Downloads\StockDB\unified_stock_data.db")
     if db_file.exists():
         db_size_mb = db_file.stat().st_size / (1024 * 1024)
         print(f"Database size: {db_size_mb:.1f} MB")
@@ -40,7 +40,7 @@ def get_collection_progress():
     
     # Get database statistics
     try:
-        conn = sqlite3.connect("data_collection/unified_stock_data.db")
+        conn = sqlite3.connect(r"C:\Users\james\Downloads\StockDB\unified_stock_data.db")
         cursor = conn.cursor()
         
         # Historical prices
