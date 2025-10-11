@@ -49,7 +49,7 @@ def run_collection_with_monitoring():
     
     def collect_data():
         try:
-            collector.run_collection(100.0)  # 100% of universe
+            collector.run_collection(100.0, prioritize_updates=True)  # 100% of universe with priority system
         except Exception as e:
             print(f"Collection error: {e}")
     

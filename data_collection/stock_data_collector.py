@@ -838,9 +838,9 @@ class UnifiedStockDataCollector:
         except Exception as e:
             self.logger.error(f"Error copying to backup: {e}")
     
-    def run_collection(self, target_percentage: float = 100.0):
-        """Run data collection with all optimizations and progress tracking"""
-        self.logger.info("Starting unified data collection")
+    def run_collection(self, target_percentage: float = 100.0, prioritize_updates: bool = True):
+        """Run data collection with priority system: update existing companies first, then collect new ones"""
+        self.logger.info("Starting unified data collection with priority system")
         
         # Load stock universe
         stock_universe = self.load_stock_universe()
@@ -855,58 +855,132 @@ class UnifiedStockDataCollector:
         total_stocks = len(stock_universe)
         target_stocks = int(total_stocks * target_percentage / 100)
         
-        # Filter out already completed tickers
-        remaining_tickers = [(ticker, name) for ticker, name in stock_universe.items() 
-                           if ticker not in completed_tickers]
+        # Separate existing companies from new companies
+        existing_tickers = [(ticker, name) for ticker, name in stock_universe.items() 
+                           if ticker in completed_tickers]
+        new_tickers = [(ticker, name) for ticker, name in stock_universe.items() 
+                      if ticker not in completed_tickers]
         
         self.logger.info(f"Target: {target_stocks}/{total_stocks} stocks ({target_percentage}%)")
-        self.logger.info(f"Remaining: {len(remaining_tickers)} stocks to process")
+        self.logger.info(f"Existing companies to update: {len(existing_tickers)}")
+        self.logger.info(f"New companies to collect: {len(new_tickers)}")
         self.logger.info(f"Using {self.max_workers} parallel workers")
         
         session_total_records = 0
         session_successful = 0
         session_failed = 0
         
-        # Process stocks in batches with parallelization
-        for i in range(0, min(len(remaining_tickers), target_stocks - len(completed_tickers)), self.batch_size):
-            batch = remaining_tickers[i:i + self.batch_size]
+        # PHASE 1: Update existing companies (prioritize current data)
+        if prioritize_updates and existing_tickers:
+            self.logger.info("=" * 60)
+            self.logger.info("PHASE 1: UPDATING EXISTING COMPANIES")
+            self.logger.info("=" * 60)
+            self.logger.info("Priority: Ensuring existing companies have latest data")
             
-            # Process batch with ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                # Submit all tasks in the batch
-                future_to_ticker = {
-                    executor.submit(self.process_single_stock, ticker, name): ticker 
-                    for ticker, name in batch
-                }
+            # Process existing companies first
+            for i in range(0, len(existing_tickers), self.batch_size):
+                batch = existing_tickers[i:i + self.batch_size]
                 
-                # Process completed tasks
-                for future in as_completed(future_to_ticker):
-                    ticker = future_to_ticker[future]
-                    try:
-                        records, success = future.result()
-                        session_total_records += records
-                        if success:
-                            session_successful += 1
-                        else:
+                # Process batch with ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    # Submit all tasks in the batch
+                    future_to_ticker = {
+                        executor.submit(self.process_single_stock, ticker, name): ticker 
+                        for ticker, name in batch
+                    }
+                    
+                    # Process completed tasks
+                    for future in as_completed(future_to_ticker):
+                        ticker = future_to_ticker[future]
+                        try:
+                            records, success = future.result()
+                            session_total_records += records
+                            if success:
+                                session_successful += 1
+                            else:
+                                session_failed += 1
+                            
+                            # Adaptive delay
+                            self.adaptive_delay(success=success)
+                            
+                        except Exception as e:
+                            self.logger.error(f"Error updating {ticker}: {e}")
                             session_failed += 1
-                        
-                        # Adaptive delay
-                        self.adaptive_delay(success=success)
-                        
-                    except Exception as e:
-                        self.logger.error(f"Error processing {ticker}: {e}")
-                        session_failed += 1
-                        self.adaptive_delay(success=False)
+                            self.adaptive_delay(success=False)
+                
+                # Checkpoint after each batch
+                self.checkpoint_after_batch()
+                
+                # Progress update for Phase 1
+                processed = session_successful + session_failed
+                if processed % 50 == 0:
+                    self.logger.info(f"Phase 1 Progress: Updated {processed}/{len(existing_tickers)} existing companies")
+                    success_rate = session_successful/processed*100 if processed > 0 else 0
+                    self.logger.info(f"Update Success Rate: {session_successful}/{processed} ({success_rate:.1f}%)")
             
-            # Checkpoint after each batch
-            self.checkpoint_after_batch()
+            self.logger.info("=" * 60)
+            self.logger.info("PHASE 1 COMPLETED: All existing companies updated")
+            self.logger.info("=" * 60)
+        
+        # PHASE 2: Collect new companies
+        if new_tickers:
+            self.logger.info("=" * 60)
+            self.logger.info("PHASE 2: COLLECTING NEW COMPANIES")
+            self.logger.info("=" * 60)
+            self.logger.info("Priority: Adding new companies to database")
             
-            # Progress update
-            processed = session_successful + session_failed
-            if processed % 50 == 0:
-                self.logger.info(f"Checkpoint: Processed {processed}/{len(remaining_tickers)} remaining tickers")
-                success_rate = session_successful/processed*100 if processed > 0 else 0
-                self.logger.info(f"Success rate: {session_successful}/{processed} ({success_rate:.1f}%)")
+            # Calculate how many new companies we can collect
+            remaining_target = target_stocks - len(completed_tickers)
+            new_tickers_to_process = min(len(new_tickers), remaining_target)
+            
+            self.logger.info(f"New companies to collect: {new_tickers_to_process}/{len(new_tickers)}")
+            
+            # Process new companies
+            for i in range(0, new_tickers_to_process, self.batch_size):
+                batch = new_tickers[i:i + self.batch_size]
+                
+                # Process batch with ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    # Submit all tasks in the batch
+                    future_to_ticker = {
+                        executor.submit(self.process_single_stock, ticker, name): ticker 
+                        for ticker, name in batch
+                    }
+                    
+                    # Process completed tasks
+                    for future in as_completed(future_to_ticker):
+                        ticker = future_to_ticker[future]
+                        try:
+                            records, success = future.result()
+                            session_total_records += records
+                            if success:
+                                session_successful += 1
+                                # Save progress for new companies
+                                self.save_ticker_progress(ticker)
+                            else:
+                                session_failed += 1
+                            
+                            # Adaptive delay
+                            self.adaptive_delay(success=success)
+                            
+                        except Exception as e:
+                            self.logger.error(f"Error collecting {ticker}: {e}")
+                            session_failed += 1
+                            self.adaptive_delay(success=False)
+                
+                # Checkpoint after each batch
+                self.checkpoint_after_batch()
+                
+                # Progress update for Phase 2
+                processed_new = (session_successful + session_failed) - len(existing_tickers) if prioritize_updates else (session_successful + session_failed)
+                if processed_new % 50 == 0:
+                    self.logger.info(f"Phase 2 Progress: Collected {processed_new}/{new_tickers_to_process} new companies")
+                    success_rate = session_successful/(session_successful+session_failed)*100 if (session_successful+session_failed) > 0 else 0
+                    self.logger.info(f"Collection Success Rate: {session_successful}/{session_successful+session_failed} ({success_rate:.1f}%)")
+            
+            self.logger.info("=" * 60)
+            self.logger.info("PHASE 2 COMPLETED: New companies collected")
+            self.logger.info("=" * 60)
         
         # Close all thread-local connections
         self.close_connection()
@@ -940,6 +1014,7 @@ def main():
     print("+ Vectorized data processing")
     print("+ Rate limiting protection")
     print("+ Complete stock universe (US, ASX, NZX)")
+    print("+ PRIORITY SYSTEM: Update existing companies first, then collect new ones")
     print("=" * 80)
     
     collector = UnifiedStockDataCollector()
@@ -949,8 +1024,10 @@ def main():
     print("2. Small collection (first 100 stocks)")
     print("3. Medium collection (first 500 stocks)")
     print("4. Full collection (all stocks)")
+    print("5. Update existing companies only (prioritize current data)")
+    print("6. Collect new companies only (skip existing)")
     
-    choice = input("\nEnter your choice (1-4): ").strip()
+    choice = input("\nEnter your choice (1-6): ").strip()
     
     # Load universe once for all calculations
     universe = collector.load_stock_universe()
@@ -960,24 +1037,32 @@ def main():
         print("Error: No stock universe loaded. Please check Excel files.")
         return
     
-    if choice == "1":
-        target_percentage = 10 / total_stocks * 100
-        print(f"Starting test run...")
-    elif choice == "2":
-        target_percentage = 100 / total_stocks * 100
-        print(f"Starting small collection...")
-    elif choice == "3":
-        target_percentage = 500 / total_stocks * 100
-        print(f"Starting medium collection...")
-    elif choice == "4":
-        target_percentage = 100.0
-        print(f"Starting full collection...")
-    else:
-        print("Invalid choice. Starting test run...")
-        target_percentage = 10 / total_stocks * 100
-    
     try:
-        total_records, successful, failed = collector.run_collection(target_percentage)
+        if choice == "1":
+            target_percentage = 10 / total_stocks * 100
+            print(f"Starting test run...")
+            total_records, successful, failed = collector.run_collection(target_percentage, prioritize_updates=True)
+        elif choice == "2":
+            target_percentage = 100 / total_stocks * 100
+            print(f"Starting small collection...")
+            total_records, successful, failed = collector.run_collection(target_percentage, prioritize_updates=True)
+        elif choice == "3":
+            target_percentage = 500 / total_stocks * 100
+            print(f"Starting medium collection...")
+            total_records, successful, failed = collector.run_collection(target_percentage, prioritize_updates=True)
+        elif choice == "4":
+            target_percentage = 100.0
+            print(f"Starting full collection...")
+            total_records, successful, failed = collector.run_collection(target_percentage, prioritize_updates=True)
+        elif choice == "5":
+            print(f"Starting update of existing companies only...")
+            total_records, successful, failed = collector.run_collection(100.0, prioritize_updates=True)
+        elif choice == "6":
+            print(f"Starting collection of new companies only...")
+            total_records, successful, failed = collector.run_collection(100.0, prioritize_updates=False)
+        else:
+            print("Invalid choice. Running full collection with priority system.")
+            total_records, successful, failed = collector.run_collection(100.0, prioritize_updates=True)
         
         print("\n" + "=" * 80)
         print("COLLECTION COMPLETED!")
