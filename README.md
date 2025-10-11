@@ -7,18 +7,15 @@ A comprehensive system for detecting AI and technology bubbles through advanced 
 ## 📊 Current Data Scale (REAL DATA ONLY)
 
 ### 🎯 Unified Stock Data Database (MAIN)
-- **Database**: `data_collection/unified_stock_data.db` (269.03 MB)
-- **Total Records**: **1,715,605 records**
-- **Coverage**: **2,473 companies** across US, ASX, and NZX exchanges
-- **Historical Prices**: **1,689,215 price records** (1980-2025)
-- **Current Fundamentals**: **2,478 companies** with financial metrics
+- **Database**: `C:\Users\james\Downloads\StockDB\unified_stock_data.db` (886.3 MB)
+- **Total Records**: **5,643,124 records**
+- **Coverage**: **7,074 companies** across US, ASX, and NZX exchanges
+- **Historical Prices**: **5,643,124 price records** (1962-2025)
+- **Current Fundamentals**: **6,095 companies** with financial metrics
 - **Analyst Ratings**: **78 ratings** across 64 companies
-- **Earnings History**: **658 quarterly earnings** from 150 companies
-- **Corporate Actions**: **20,308 actions** (dividends, splits) from 742 companies
-- **Institutional Holdings**: **1,879 holdings** from 281 companies
-- **Extended Price Data**: **836 companies** with 52-week highs/lows
-- **Market Indicators**: **153 market indicators** (2025-09-02 to 2025-10-02)
-- **Financial Announcements**: **12,456 announcements** from NZX companies
+- **Corporate Actions**: **198,285 actions** (dividends, splits) from 4,701 companies
+- **Collection Progress**: **56.1% complete** (7,074/12,617 stocks)
+- **Status**: ✅ **ACTIVE COLLECTION** - Growing at ~560 stocks/hour
 
 ### 📰 Consolidated Financial Database
 - **Database**: `consolidated_data/unified_financial_data.db` (0.98 MB)
@@ -41,16 +38,11 @@ A comprehensive system for detecting AI and technology bubbles through advanced 
 - `stock_data_collector.py` - **MAIN** unified data collection script
 - `database_monitor.py` - Database monitoring and analysis
 - `NZX_ASX.xlsx` - Stock universe (177 NZX + 2,327 ASX stocks)
-- `USMarket.xlsx` - Stock universe (889 US stocks)
-- `unified_stock_data.db` - **MAIN** SQLite database with all collected data (269 MB)
+- `USMarket_Comprehensive.xlsx` - **EXPANDED** US stock universe (10,142 stocks)
+- `unified_stock_data.db` - Local SQLite database (backup/legacy)
 - `completed_tickers.json` - Progress tracking for resume capability
 
-### 📰 Consolidated Data (`consolidated_data/`)
-**Purpose**: Unified financial announcements across exchanges
-
-**Contents**:
-- `unified_financial_data.db` - Cross-exchange financial announcements
-- `pdfs/` - Downloaded PDF documents organized by exchange and company
+**Active Database**: `C:\Users\james\Downloads\StockDB\unified_stock_data.db` (886.3 MB)
 
 ### 💰 Valuation Analysis (`valuation_analysis/`)
 **Purpose**: Stock valuation analysis and screening
@@ -66,24 +58,31 @@ A comprehensive system for detecting AI and technology bubbles through advanced 
 **Contents**:
 - `Review of AI bubble Indicators.md` - Analysis documentation and research
 
+### 📊 Monitoring Scripts (Root Directory)
+**Purpose**: Real-time collection monitoring and management
+
+**Contents**:
+- `monitor_collection.py` - Real-time progress monitoring
+- `run_collection.py` - Background collection execution
+
 ## 🚀 Usage Instructions
 
 ### 📊 Stock Data Collection
 ```bash
-# Navigate to data collection directory
-cd data_collection
+# Run comprehensive data collection (12,617 stocks)
+python run_collection.py
 
-# Run unified data collection
-python stock_data_collector.py
+# Monitor real-time progress
+python monitor_collection.py
 
 # Collection Options:
 # 1. Test run (first 10 stocks)
 # 2. Small collection (first 100 stocks)  
 # 3. Medium collection (first 500 stocks)
-# 4. Full collection (all 3,270 stocks)
+# 4. Full collection (all 12,617 stocks)
 
-# Monitor database
-python database_monitor.py
+# Monitor database growth
+python data_collection/database_monitor.py
 ```
 
 ### 💰 Valuation Analysis
@@ -97,14 +96,14 @@ python stock_valuation_scraper.py
 
 ### 🔗 Database Access
 ```bash
-# Access unified stock database
-# Database: data_collection/unified_stock_data.db
+# Access main unified stock database
+# Database: C:\Users\james\Downloads\StockDB\unified_stock_data.db
 
 # Query examples:
-# - Historical price data for any ticker
-# - Current fundamentals and ratios
-# - Analyst ratings and recommendations
-# - Corporate actions and dividends
+# - Historical price data for any ticker (5.6M+ records)
+# - Current fundamentals and ratios (6,095 companies)
+# - Analyst ratings and recommendations (78 ratings)
+# - Corporate actions and dividends (198K+ actions)
 # - Institutional holdings data
 ```
 
@@ -116,10 +115,11 @@ python stock_valuation_scraper.py
 - **No Fake Data**: All manufactured/test data has been removed
 
 ### 📈 Data Quality
-- **1.7M+ Records**: Comprehensive historical coverage
-- **Multi-Exchange**: US, ASX, and NZX markets
+- **5.6M+ Records**: Comprehensive historical coverage (1962-2025)
+- **Multi-Exchange**: US (10,142), ASX (2,327), and NZX (177) markets
 - **Real-Time Updates**: Current market data and fundamentals
 - **Progress Tracking**: Resume capability for large collections
+- **Active Collection**: Currently collecting at 560 stocks/hour
 
 ### 🔧 Technical Features
 - **Optimized Collection**: Single API call per data type per stock
@@ -130,16 +130,15 @@ python stock_valuation_scraper.py
 
 ## 🗄️ Database Schema
 
-### Unified Stock Database (`data_collection/unified_stock_data.db`) - 269.03 MB
-- **`historical_prices`** - OHLCV data with weekly/daily intervals (1,689,215 records)
-- **`current_fundamentals`** - P/E, P/B, ROE, margins, growth metrics (2,478 records)
+### Unified Stock Database (`C:\Users\james\Downloads\StockDB\unified_stock_data.db`) - 886.3 MB
+- **`historical_prices`** - OHLCV data with weekly/daily intervals (5,643,124 records)
+- **`current_fundamentals`** - P/E, P/B, ROE, margins, growth metrics (6,095 records)
 - **`analyst_ratings`** - Analyst recommendations and upgrades/downgrades (78 records)
-- **`earnings_history`** - Quarterly earnings data with surprises (658 records)
-- **`corporate_actions`** - Dividends and stock splits (20,308 records)
-- **`institutional_holdings`** - Major institutional ownership data (1,879 records)
-- **`extended_price_data`** - 52-week highs/lows, volume metrics (836 records)
-- **`market_indicators`** - Market index and indicator data (153 records)
-- **`financial_announcements`** - NZX financial announcements (12,456 records)
+- **`corporate_actions`** - Dividends and stock splits (198,285 records)
+- **`institutional_holdings`** - Major institutional ownership data
+- **`extended_price_data`** - 52-week highs/lows, volume metrics
+- **`market_indicators`** - Market index and indicator data
+- **`financial_announcements`** - NZX financial announcements
 
 ### Consolidated Financial Database (`consolidated_data/unified_financial_data.db`) - 0.98 MB
 - **`financial_announcements`** - Cross-exchange financial announcements (1,852 records)
@@ -160,10 +159,11 @@ python stock_valuation_scraper.py
 - **Resume Capability**: Automatic progress tracking and recovery
 
 ### Data Coverage
-- **US Market**: 889 stocks with comprehensive data
+- **US Market**: 10,142 stocks with comprehensive data
 - **ASX Market**: 2,327 stocks with market data
-- **NZX Market**: 177 stocks with market data + 12,456 announcements
-- **Total Coverage**: 3,270+ companies across multiple exchanges
+- **NZX Market**: 177 stocks with market data + announcements
+- **Total Coverage**: 12,617+ companies across multiple exchanges
+- **Collection Progress**: 56.1% complete (7,074/12,617 stocks)
 
 ## 🔍 Data Quality Assurance
 
@@ -223,4 +223,6 @@ This project is designed for educational and research purposes in financial anal
 
 **Last Updated**: 2025-10-11  
 **Data Status**: All fake data removed, only real external sources used  
-**Total Real Records**: 1,715,605+ across multiple databases
+**Total Real Records**: 5,643,124+ across multiple databases  
+**Collection Status**: ✅ **ACTIVE** - 56.1% complete (7,074/12,617 stocks)  
+**Database Size**: 886.3 MB and growing

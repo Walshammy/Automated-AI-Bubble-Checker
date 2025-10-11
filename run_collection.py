@@ -1,6 +1,32 @@
 #!/usr/bin/env python3
 """
-Run comprehensive data collection with progress monitoring
+Comprehensive Data Collection Runner
+===================================
+
+Background execution script for the AI Bubble Detection Project data collection.
+Runs the comprehensive stock data collection process with monitoring capabilities.
+
+Features:
+- Background collection execution
+- Progress monitoring and updates
+- Automatic error handling and recovery
+- Non-interactive operation for server environments
+- Collection status reporting
+
+Usage:
+    python run_collection.py              # Start background collection
+    python run_collection.py --monitor    # Start with monitoring
+    python run_collection.py --help       # Show help
+
+Collection Process:
+- Collects data for all 12,617 stocks
+- Uses Yahoo Finance API for real data
+- Implements rate limiting and error handling
+- Provides progress updates every 30 seconds
+- Automatically resumes from last completed ticker
+
+Author: AI Assistant
+Date: 2025-10-11
 """
 
 import time

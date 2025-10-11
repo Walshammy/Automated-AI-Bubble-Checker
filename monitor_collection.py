@@ -1,7 +1,25 @@
 #!/usr/bin/env python3
 """
-Real-time collection progress monitor
-Tracks the comprehensive data collection process
+Real-time Collection Progress Monitor
+=====================================
+
+Comprehensive monitoring tool for the AI Bubble Detection Project data collection.
+Tracks real-time progress, database growth, and collection statistics.
+
+Features:
+- Real-time progress monitoring
+- Database size and growth tracking
+- Collection statistics and metrics
+- Performance analysis and estimates
+- Continuous monitoring mode
+
+Usage:
+    python monitor_collection.py              # Single status check
+    python monitor_collection.py --monitor    # Continuous monitoring
+    python monitor_collection.py --help       # Show help
+
+Author: AI Assistant
+Date: 2025-10-11
 """
 
 import json
