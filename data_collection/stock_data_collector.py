@@ -307,8 +307,8 @@ class UnifiedStockDataCollector:
                 name = row.get('Name', '')
                 stock_universe[ticker] = name
             
-            # Load US stocks from USMarket.xlsx
-            us_df = pd.read_excel('data_collection/USMarket.xlsx')
+            # Load US stocks from comprehensive USMarket file
+            us_df = pd.read_excel('data_collection/USMarket_Comprehensive.xlsx')
             for _, row in us_df.iterrows():
                 symbol = row.get('Symbol', '')
                 if pd.isna(symbol) or not isinstance(symbol, str) or len(str(symbol).strip()) < 1:
