@@ -7,15 +7,15 @@ A comprehensive system for detecting AI and technology bubbles through advanced 
 ## 📊 Current Data Scale (REAL DATA ONLY)
 
 ### 🎯 Unified Stock Data Database (MAIN)
-- **Database**: `C:\Users\james\Downloads\StockDB\unified_stock_data.db` (886.3 MB)
-- **Total Records**: **5,643,124 records**
-- **Coverage**: **7,074 companies** across US, ASX, and NZX exchanges
-- **Historical Prices**: **5,643,124 price records** (1962-2025)
-- **Current Fundamentals**: **6,095 companies** with financial metrics
+- **Database**: `data_collection/unified_stock_data.db` (904.6 MB)
+- **Total Records**: **5,764,723 records**
+- **Coverage**: **7,239 companies** across US, ASX, and NZX exchanges
+- **Historical Prices**: **5,764,723 price records** (1962-2025)
+- **Current Fundamentals**: **6,403 companies** with financial metrics
 - **Analyst Ratings**: **78 ratings** across 64 companies
-- **Corporate Actions**: **198,285 actions** (dividends, splits) from 4,701 companies
-- **Collection Progress**: **56.1% complete** (7,074/12,617 stocks)
-- **Status**: ✅ **ACTIVE COLLECTION** - Growing at ~560 stocks/hour
+- **Corporate Actions**: **207,700 actions** (dividends, splits) from 4,938 companies
+- **Collection Progress**: **46.5% complete** (5,872/12,617 stocks)
+- **Status**: ✅ **ACTIVE COLLECTION** - Growing at ~76 stocks/hour
 
 ### 📰 Consolidated Financial Database
 - **Database**: `consolidated_data/unified_financial_data.db` (0.98 MB)
@@ -42,7 +42,7 @@ A comprehensive system for detecting AI and technology bubbles through advanced 
 - `unified_stock_data.db` - Local SQLite database (backup/legacy)
 - `completed_tickers.json` - Progress tracking for resume capability
 
-**Active Database**: `C:\Users\james\Downloads\StockDB\unified_stock_data.db` (886.3 MB)
+**Active Database**: `data_collection/unified_stock_data.db` (904.6 MB)
 
 ### 💰 Valuation Analysis (`valuation_analysis/`)
 **Purpose**: Stock valuation analysis and screening
