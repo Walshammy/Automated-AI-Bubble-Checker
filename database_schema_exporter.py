@@ -264,7 +264,7 @@ class DatabaseSchemaExporter:
             quality_metrics = self.get_data_quality_metrics(conn, schema_info)
             
             print("3. Getting sample data...")
-            sample_data = self.get_sample_data(conn)
+            sample_data = self.get_sample_data(conn, schema_info)
             
             print("4. Creating summary statistics...")
             table_summary = self.get_table_summary(schema_info, quality_metrics)
@@ -301,18 +301,18 @@ class DatabaseSchemaExporter:
             
             conn.close()
             
-            print(f"\n✅ Export completed successfully!")
-            print(f"📁 File saved as: {self.output_file}")
-            print(f"📊 Total sheets created: {len(schema_info) * 3 + 3}")  # Schema + Quality + Sample + Summary + Combined sheets
+            print(f"\nExport completed successfully!")
+            print(f"File saved as: {self.output_file}")
+            print(f"Total sheets created: {len(schema_info) * 3 + 3}")  # Schema + Quality + Sample + Summary + Combined sheets
             
             # Print summary
-            print(f"\n📋 EXPORT SUMMARY:")
+            print(f"\nEXPORT SUMMARY:")
             print(f"   Tables exported: {len(schema_info)}")
             print(f"   Total columns: {len(all_schema)}")
             print(f"   Total rows across all tables: {table_summary['total_rows'].sum():,}")
             
         except Exception as e:
-            print(f"❌ Error during export: {e}")
+            print(f"Error during export: {e}")
 
 def main():
     """Main function"""
