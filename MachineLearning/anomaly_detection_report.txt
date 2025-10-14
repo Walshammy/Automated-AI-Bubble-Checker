@@ -1,0 +1,29 @@
+MARKET ANOMALY DETECTION REPORT
+==================================================
+Analysis Date: 2025-10-14 19:59:10
+Total Stocks Analyzed: 6949
+Anomalies Detected: 695
+Anomaly Rate: 10.0%
+
+TOP 20 MOST ANOMALOUS STOCKS:
+--------------------------------------------------
+ 1. CTTRF      PNK      Score: -0.328 Return:  35.2% Vol: 0.013
+ 2. EVTWF      PNK      Score: -0.324 Return:   0.0% Vol: 0.000
+ 3. BKGM       PNK      Score: -0.321 Return: -28596.9% Vol: 33.632
+ 4. DBVTF      PNK      Score: -0.313 Return: -100.0% Vol: 0.069
+ 5. GNVR       PNK      Score: -0.310 Return: -50.0% Vol: 21.941
+ 6. ARQQW      NCM      Score: -0.308 Return: 132.7% Vol: 0.008
+ 7. GFSAY      PNK      Score: -0.306 Return:   0.0% Vol: 0.000
+ 8. HCIIP      PNK      Score: -0.303 Return:   0.0% Vol: 0.000
+ 9. GCGJ       PNK      Score: -0.303 Return:   0.0% Vol: 0.000
+10. FKURF      PNK      Score: -0.299 Return: -95251.7% Vol: 1.509
+11. GNOLF      PNK      Score: -0.296 Return: 1380.0% Vol: 36.432
+12. GNTLF      PNK      Score: -0.293 Return: 566.7% Vol: 35.487
+13. EVOH       PNK      Score: -0.288 Return:   4.4% Vol: 0.002
+14. JOCM       PNK      Score: -0.288 Return:   0.0% Vol: 0.000
+15. BRPSF      PNK      Score: -0.283 Return:  12.3% Vol: 0.006
+16. EMRH       PNK      Score: -0.281 Return:   0.0% Vol: 29.139
+17. CAPS       NCM      Score: -0.279 Return: -85.9% Vol: 0.104
+18. HAPVD      PNK      Score: -0.273 Return:   0.0% Vol: 0.000
+19. BMH.AX     ASX      Score: -0.272 Return: -89.0% Vol: 0.052
+20. BAKR       OQB      Score: -0.269 Return: 47900.0% Vol: 1.899
