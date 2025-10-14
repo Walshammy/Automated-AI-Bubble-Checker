@@ -2,32 +2,23 @@
 
 ## 🚀 Project Overview
 
-A comprehensive system for detecting AI and technology bubbles through advanced financial data collection and analysis. This project provides sophisticated bubble detection capabilities across multiple exchanges using **ONLY REAL DATA** from external sources.
+A comprehensive system for detecting AI and technology bubbles through advanced financial data collection, analysis, and machine learning. This project provides sophisticated bubble detection capabilities across multiple exchanges using from external sources.
 
-## 📊 Current Data Scale (REAL DATA ONLY)
+## 📊 Current Status (October 2025)
 
-### 🎯 Unified Stock Data Database (MAIN)
-- **Database**: `data_collection/unified_stock_data.db` (904.6 MB)
-- **Total Records**: **5,764,723 records**
+### 🎯 Database Status
+- **Main Database**: `C:\Users\james\Downloads\StockDB\unified_stock_data.db` (950 MB)
+- **Total Records**: **5,767,035 historical price records**
 - **Coverage**: **7,239 companies** across US, ASX, and NZX exchanges
-- **Historical Prices**: **5,764,723 price records** (1962-2025)
-- **Current Fundamentals**: **6,403 companies** with financial metrics
-- **Analyst Ratings**: **78 ratings** across 64 companies
-- **Corporate Actions**: **207,700 actions** (dividends, splits) from 4,938 companies
-- **Collection Progress**: **46.5% complete** (5,872/12,617 stocks)
-- **Status**: ✅ **ACTIVE COLLECTION** - Growing at ~76 stocks/hour
+- **Collection Progress**: **46.6% complete** (5,875/12,617 stocks)
+- **Status**: ⏸️ **PAUSED** for anomaly analysis
 
-### 📰 Consolidated Financial Database
-- **Database**: `consolidated_data/unified_financial_data.db` (0.98 MB)
-- **Total Announcements**: **1,852 financial announcements**
-- **Coverage**: ASX and NZX exchanges
-- **Date Range**: 2022-10-12 to 2025-10-11
-
-### 💰 Valuation Analysis Database
-- **Database**: `valuation_analysis/stock_valuation_data.db` (0.03 MB)
-- **Coverage**: **3 companies** with comprehensive valuation analysis
-- **Data Types**: Current price, sector analysis, financial ratios
-- **Purpose**: Stock screening and bubble detection analysis
+### 🤖 Machine Learning Capabilities
+- **Anomaly Detection**: Isolation Forest algorithm implemented
+- **Anomalies Detected**: 695 stocks (10% anomaly rate)
+- **Features**: 20 technical indicators per stock
+- **Visualization**: Comprehensive analysis charts
+- **Export**: CSV reports and summary files
 
 ## 🗂️ Repository Structure
 
@@ -39,10 +30,20 @@ A comprehensive system for detecting AI and technology bubbles through advanced 
 - `database_monitor.py` - Database monitoring and analysis
 - `NZX_ASX.xlsx` - Stock universe (177 NZX + 2,327 ASX stocks)
 - `USMarket_Comprehensive.xlsx` - **EXPANDED** US stock universe (10,142 stocks)
-- `unified_stock_data.db` - Local SQLite database (backup/legacy)
+- `unified_stock_data.db` - Local SQLite database (282 MB backup)
 - `completed_tickers.json` - Progress tracking for resume capability
 
-**Active Database**: `data_collection/unified_stock_data.db` (904.6 MB)
+**Active Database**: `C:\Users\james\Downloads\StockDB\unified_stock_data.db` (950 MB)
+
+### 🤖 Machine Learning (`MachineLearning/`)
+**Purpose**: Advanced analytics and anomaly detection
+
+**Contents**:
+- `anomaly_detection.py` - Isolation Forest anomaly detection system
+- `anomaly_detection_full_results.csv` - Complete analysis results (3.1 MB)
+- `detected_anomalies.csv` - Anomalous stocks only (305 KB)
+- `anomaly_detection_report.txt` - Summary report
+- `anomaly_detection_results.png` - Visualization charts (493 KB)
 
 ### 💰 Valuation Analysis (`valuation_analysis/`)
 **Purpose**: Stock valuation analysis and screening
@@ -58,12 +59,14 @@ A comprehensive system for detecting AI and technology bubbles through advanced 
 **Contents**:
 - `Review of AI bubble Indicators.md` - Analysis documentation and research
 
-### 📊 Monitoring Scripts (Root Directory)
+### 📊 Core Scripts (Root Directory)
 **Purpose**: Real-time collection monitoring and management
 
 **Contents**:
 - `monitor_collection.py` - Real-time progress monitoring
 - `run_collection.py` - Background collection execution
+- `optimized_schema_exporter.py` - Database schema export (5 sheets, 62% smaller)
+- `PROJECT_SUMMARY.md` - Comprehensive project documentation
 
 ## 🚀 Usage Instructions
 
@@ -85,6 +88,21 @@ python monitor_collection.py
 python data_collection/database_monitor.py
 ```
 
+### 🤖 Machine Learning Analysis
+```bash
+# Navigate to MachineLearning directory
+cd MachineLearning
+
+# Run anomaly detection
+python anomaly_detection.py
+
+# Results will be saved as:
+# - anomaly_detection_full_results.csv
+# - detected_anomalies.csv
+# - anomaly_detection_report.txt
+# - anomaly_detection_results.png
+```
+
 ### 💰 Valuation Analysis
 ```bash
 # Navigate to valuation analysis directory
@@ -94,17 +112,13 @@ cd valuation_analysis
 python stock_valuation_scraper.py
 ```
 
-### 🔗 Database Access
+### 📊 Database Schema Export
 ```bash
-# Access main unified stock database
-# Database: C:\Users\james\Downloads\StockDB\unified_stock_data.db
+# Export optimized database schema
+python optimized_schema_exporter.py
 
-# Query examples:
-# - Historical price data for any ticker (5.6M+ records)
-# - Current fundamentals and ratios (6,095 companies)
-# - Analyst ratings and recommendations (78 ratings)
-# - Corporate actions and dividends (198K+ actions)
-# - Institutional holdings data
+# Creates: optimized_schema_export_YYYYMMDD_HHMMSS.xlsx
+# Contains: 5 consolidated sheets (vs 42 in original)
 ```
 
 ## 🎯 Key Features
@@ -115,11 +129,18 @@ python stock_valuation_scraper.py
 - **No Fake Data**: All manufactured/test data has been removed
 
 ### 📈 Data Quality
-- **5.6M+ Records**: Comprehensive historical coverage (1962-2025)
+- **5.7M+ Records**: Comprehensive historical coverage (1962-2025)
 - **Multi-Exchange**: US (10,142), ASX (2,327), and NZX (177) markets
 - **Real-Time Updates**: Current market data and fundamentals
 - **Progress Tracking**: Resume capability for large collections
-- **Active Collection**: Currently collecting at 560 stocks/hour
+- **Collection Rate**: ~76 stocks/hour when active
+
+### 🤖 Machine Learning Features
+- **Isolation Forest**: Unsupervised anomaly detection
+- **Feature Engineering**: 20 technical indicators per stock
+- **Dimensionality Reduction**: PCA to 14 components (95.9% variance)
+- **Visualization**: 6-panel analysis charts
+- **Export Capabilities**: CSV reports and summary files
 
 ### 🔧 Technical Features
 - **Optimized Collection**: Single API call per data type per stock
@@ -130,25 +151,31 @@ python stock_valuation_scraper.py
 
 ## 🗄️ Database Schema
 
-### Unified Stock Database (`C:\Users\james\Downloads\StockDB\unified_stock_data.db`) - 886.3 MB
-- **`historical_prices`** - OHLCV data with weekly/daily intervals (5,643,124 records)
-- **`current_fundamentals`** - P/E, P/B, ROE, margins, growth metrics (6,095 records)
+### Unified Stock Database (`C:\Users\james\Downloads\StockDB\unified_stock_data.db`) - 950 MB
+- **`historical_prices`** - OHLCV data with weekly/daily intervals (5,767,035 records)
+- **`current_fundamentals`** - P/E, P/B, ROE, margins, growth metrics (6,403 records)
 - **`analyst_ratings`** - Analyst recommendations and upgrades/downgrades (78 records)
-- **`corporate_actions`** - Dividends and stock splits (198,285 records)
+- **`corporate_actions`** - Dividends and stock splits (207,706 records)
 - **`institutional_holdings`** - Major institutional ownership data
 - **`extended_price_data`** - 52-week highs/lows, volume metrics
 - **`market_indicators`** - Market index and indicator data
 - **`financial_announcements`** - NZX financial announcements
 
-### Consolidated Financial Database (`consolidated_data/unified_financial_data.db`) - 0.98 MB
-- **`financial_announcements`** - Cross-exchange financial announcements (1,852 records)
-- **`company_metadata`** - Company information across exchanges (0 records)
-- **`collection_stats`** - System performance and coverage statistics (2 records)
+## 📊 Anomaly Detection Results
 
-### Valuation Analysis Database (`valuation_analysis/stock_valuation_data.db`) - 0.03 MB
-- **`investment_theses`** - Comprehensive stock analysis and investment recommendations
-- **`valuation_metrics`** - Calculated financial ratios and metrics
-- **`bubble_indicators`** - AI bubble detection analysis
+### 🚨 Key Findings
+- **Total Anomalies**: 695 stocks (10.0% anomaly rate)
+- **Most Anomalous**: CTTRF (PNK) - 35.2% return, extremely low volatility
+- **Exchange Distribution**: 
+  - PNK (Pink Sheets): 32.5% of anomalies
+  - NCM (Nasdaq Capital): 20.1%
+  - ASX (Australian): 18.3%
+
+### 📈 Anomaly Characteristics
+- **Average 6-month return**: 208.2% (vs normal stocks)
+- **Average volatility**: 0.689 (higher than normal)
+- **Average volume ratio**: 1.31 (elevated trading)
+- **Average max drawdown**: -70.2% (severe losses)
 
 ## 📊 Performance Metrics
 
@@ -163,7 +190,7 @@ python stock_valuation_scraper.py
 - **ASX Market**: 2,327 stocks with market data
 - **NZX Market**: 177 stocks with market data + announcements
 - **Total Coverage**: 12,617+ companies across multiple exchanges
-- **Collection Progress**: 56.1% complete (7,074/12,617 stocks)
+- **Collection Progress**: 46.6% complete (5,875/12,617 stocks)
 
 ## 🔍 Data Quality Assurance
 
@@ -189,6 +216,7 @@ python stock_valuation_scraper.py
 
 ### Bubble Detection
 - **AI Sector Analysis**: Technology stock valuation assessment
+- **Anomaly Detection**: Machine learning-based outlier identification
 - **Market Indicators**: Overall market health and trends
 - **Institutional Activity**: Major investor behavior analysis
 - **Earnings Quality**: Revenue and profit sustainability
@@ -198,7 +226,7 @@ python stock_valuation_scraper.py
 ### Planned Improvements
 - **Enhanced ASX Collection**: Real ASX announcement scraping
 - **Real-Time Updates**: Automated data refresh capabilities
-- **Advanced Analytics**: Machine learning bubble detection
+- **Advanced Analytics**: Additional ML models for bubble detection
 - **Portfolio Analysis**: Multi-stock portfolio evaluation
 
 ### Data Expansion
@@ -221,8 +249,9 @@ This project is designed for educational and research purposes in financial anal
 
 ---
 
-**Last Updated**: 2025-10-11  
+**Last Updated**: 2025-10-14  
 **Data Status**: All fake data removed, only real external sources used  
-**Total Real Records**: 5,643,124+ across multiple databases  
-**Collection Status**: ✅ **ACTIVE** - 56.1% complete (7,074/12,617 stocks)  
-**Database Size**: 886.3 MB and growing
+**Total Real Records**: 5,767,035+ across multiple databases  
+**Collection Status**: ⏸️ **PAUSED** - 46.6% complete (5,875/12,617 stocks)  
+**Database Size**: 950 MB  
+**ML Status**: ✅ **ANOMALY DETECTION COMPLETE** - 695 anomalies identified
