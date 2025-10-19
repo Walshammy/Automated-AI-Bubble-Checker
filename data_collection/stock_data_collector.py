@@ -998,10 +998,10 @@ class UnifiedStockDataCollector:
         
         return session_total_records, session_successful, session_failed
 
-def main():
-    """Main function"""
+def run_automated_collection():
+    """Run the automated collection process - starts with updates, then historical data"""
     print("=" * 80)
-    print("UNIFIED STOCK DATA COLLECTOR")
+    print("UNIFIED STOCK DATA COLLECTOR - AUTOMATED MODE")
     print("=" * 80)
     print("Comprehensive stock data collection with optimizations:")
     print("+ Fixed volatility calculation for weekly data")
@@ -1014,20 +1014,10 @@ def main():
     print("+ Vectorized data processing")
     print("+ Rate limiting protection")
     print("+ Complete stock universe (US, ASX, NZX)")
-    print("+ PRIORITY SYSTEM: Update existing companies first, then collect new ones")
+    print("+ AUTOMATED PRIORITY SYSTEM: Update existing companies first, then collect new ones")
     print("=" * 80)
     
     collector = UnifiedStockDataCollector()
-    
-    print("\nCollection Options:")
-    print("1. Test run (first 10 stocks)")
-    print("2. Small collection (first 100 stocks)")
-    print("3. Medium collection (first 500 stocks)")
-    print("4. Full collection (all stocks)")
-    print("5. Update existing companies only (prioritize current data)")
-    print("6. Collect new companies only (skip existing)")
-    
-    choice = input("\nEnter your choice (1-6): ").strip()
     
     # Load universe once for all calculations
     universe = collector.load_stock_universe()
@@ -1037,49 +1027,65 @@ def main():
         print("Error: No stock universe loaded. Please check Excel files.")
         return
     
+    print(f"\nStock Universe Loaded: {total_stocks:,} stocks")
+    print("Starting AUTOMATED collection process...")
+    print("=" * 60)
+    
     try:
-        if choice == "1":
-            target_percentage = 10 / total_stocks * 100
-            print(f"Starting test run...")
-            total_records, successful, failed = collector.run_collection(target_percentage, prioritize_updates=True)
-        elif choice == "2":
-            target_percentage = 100 / total_stocks * 100
-            print(f"Starting small collection...")
-            total_records, successful, failed = collector.run_collection(target_percentage, prioritize_updates=True)
-        elif choice == "3":
-            target_percentage = 500 / total_stocks * 100
-            print(f"Starting medium collection...")
-            total_records, successful, failed = collector.run_collection(target_percentage, prioritize_updates=True)
-        elif choice == "4":
-            target_percentage = 100.0
-            print(f"Starting full collection...")
-            total_records, successful, failed = collector.run_collection(target_percentage, prioritize_updates=True)
-        elif choice == "5":
-            print(f"Starting update of existing companies only...")
-            total_records, successful, failed = collector.run_collection(100.0, prioritize_updates=True)
-        elif choice == "6":
-            print(f"Starting collection of new companies only...")
-            total_records, successful, failed = collector.run_collection(100.0, prioritize_updates=False)
-        else:
-            print("Invalid choice. Running full collection with priority system.")
-            total_records, successful, failed = collector.run_collection(100.0, prioritize_updates=True)
+        # PHASE 1: Automatically start with option 5 - Update existing companies
+        print("PHASE 1: AUTOMATICALLY UPDATING EXISTING COMPANIES")
+        print("=" * 60)
+        print("Priority: Ensuring existing companies have latest data")
+        
+        phase1_records, phase1_successful, phase1_failed = collector.run_collection(100.0, prioritize_updates=True)
+        
+        print("\n" + "=" * 60)
+        print("PHASE 1 COMPLETED: Existing companies updated")
+        print(f"Phase 1 Results: {phase1_records:,} records, {phase1_successful} successful, {phase1_failed} failed")
+        print("=" * 60)
+        
+        # PHASE 2: Automatically proceed to historical data collection
+        print("\nPHASE 2: AUTOMATICALLY COLLECTING HISTORICAL DATA")
+        print("=" * 60)
+        print("Priority: Adding new companies and completing historical coverage")
+        
+        # Run full collection to ensure we get all historical data
+        phase2_records, phase2_successful, phase2_failed = collector.run_collection(100.0, prioritize_updates=True)
+        
+        print("\n" + "=" * 60)
+        print("PHASE 2 COMPLETED: Historical data collection finished")
+        print(f"Phase 2 Results: {phase2_records:,} records, {phase2_successful} successful, {phase2_failed} failed")
+        print("=" * 60)
+        
+        # Calculate total session results
+        total_records = phase1_records + phase2_records
+        total_successful = phase1_successful + phase2_successful
+        total_failed = phase1_failed + phase2_failed
         
         print("\n" + "=" * 80)
-        print("COLLECTION COMPLETED!")
+        print("AUTOMATED COLLECTION COMPLETED!")
         print("=" * 80)
         print(f"Total Records: {total_records:,}")
-        print(f"Successful: {successful}")
-        print(f"Failed: {failed}")
-        success_rate = successful/(successful+failed)*100 if (successful+failed) > 0 else 0
+        print(f"Successful: {total_successful}")
+        print(f"Failed: {total_failed}")
+        success_rate = total_successful/(total_successful+total_failed)*100 if (total_successful+total_failed) > 0 else 0
         print(f"Success Rate: {success_rate:.1f}%")
         print(f"Database: {collector.db_path}")
         print(f"Backup: {collector.backup_path}")
         print("=" * 80)
         
+        return total_records, total_successful, total_failed
+        
     except KeyboardInterrupt:
         print("\nCollection interrupted by user")
+        return 0, 0, 0
     except Exception as e:
         print(f"\nCollection failed: {e}")
+        return 0, 0, 0
+
+def main():
+    """Main function - calls automated collection process"""
+    return run_automated_collection()
 
 if __name__ == "__main__":
     main()
