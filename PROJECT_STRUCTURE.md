@@ -11,7 +11,7 @@ Automated-AI-Bubble-Checker/
 │   ├── unified_stock_data.db             # Local backup database
 │   ├── NZX_ASX.xlsx                      # Stock universe (NZX + ASX)
 │   ├── USMarket_Comprehensive.xlsx       # US stock universe
-│   └── README.md                         # Data collection documentation
+│   └── README.md                         # Data collection documentation 
 │
 ├── 🤖 MachineLearning/                   # ML analysis module
 │   ├── anomaly_detection.py              # Isolation Forest anomaly detection

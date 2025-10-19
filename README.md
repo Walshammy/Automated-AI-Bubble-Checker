@@ -46,7 +46,7 @@ A comprehensive system for detecting AI and technology bubbles through advanced 
 - `anomaly_detection_results.png` - Visualization charts (493 KB)
 
 ### 💰 Valuation Analysis (`valuation_analysis/`)
-**Purpose**: Stock valuation analysis and screening
+**Purpose**: Stock valuation analysis and screening   
 
 **Contents**:
 - `stock_valuation_scraper.py` - Comprehensive valuation analysis with bubble detection
