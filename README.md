@@ -60,9 +60,10 @@ A comprehensive system for detecting AI and technology bubbles through advanced 
 - `Review of AI bubble Indicators.md` - Analysis documentation and research
 
 ### 📊 Core Scripts (Root Directory)
-**Purpose**: Real-time collection monitoring and management
+**Purpose**: Automated collection execution and monitoring
 
 **Contents**:
+- `run_automated_collection.py` - **NEW** Automated collection runner (starts with updates, then historical)
 - `monitor_collection.py` - Real-time progress monitoring
 - `run_collection.py` - Background collection execution
 - `optimized_schema_exporter.py` - Database schema export (5 sheets, 62% smaller)
@@ -70,23 +71,30 @@ A comprehensive system for detecting AI and technology bubbles through advanced 
 
 ## 🚀 Usage Instructions
 
-### 📊 Stock Data Collection
+### 📊 Automated Stock Data Collection
 ```bash
-# Run comprehensive data collection (12,617 stocks)
-python run_collection.py
+# AUTOMATED COLLECTION - Starts with updates, then historical data
+python run_automated_collection.py
+
+# OR run the collector directly
+python data_collection/stock_data_collector.py
 
 # Monitor real-time progress
 python monitor_collection.py
 
-# Collection Options:
-# 1. Test run (first 10 stocks)
-# 2. Small collection (first 100 stocks)  
-# 3. Medium collection (first 500 stocks)
-# 4. Full collection (all 12,617 stocks)
+# Background collection with monitoring
+python run_collection.py
 
 # Monitor database growth
 python data_collection/database_monitor.py
 ```
+
+### 🤖 Automated Collection Process
+The system now automatically:
+1. **Phase 1**: Updates existing companies with latest data (equivalent to option 5)
+2. **Phase 2**: Collects historical data for all companies
+3. **No User Input Required**: Fully automated process
+4. **Progress Tracking**: Clear phase separation and progress reporting
 
 ### 🤖 Machine Learning Analysis
 ```bash
@@ -143,11 +151,13 @@ python optimized_schema_exporter.py
 - **Export Capabilities**: CSV reports and summary files
 
 ### 🔧 Technical Features
+- **Automated Collection**: Two-phase process (updates first, then historical data)
 - **Optimized Collection**: Single API call per data type per stock
 - **Connection Pooling**: Efficient database operations
 - **Rate Limiting**: Adaptive delays with exponential backoff
 - **Error Handling**: Robust retry logic and progress tracking
 - **Parallel Processing**: Concurrent data collection
+- **No User Input**: Fully automated execution
 
 ## 🗄️ Database Schema
 

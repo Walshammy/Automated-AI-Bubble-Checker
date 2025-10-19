@@ -50,9 +50,10 @@ The AI Bubble Detection Project is a comprehensive financial analysis system des
 - **Expert Opinions**: Goldman Sachs, Ray Dalio, Sam Altman views
 
 ### 📊 Monitoring Scripts (Root Directory)
-**Purpose**: Real-time collection monitoring and management
+**Purpose**: Automated collection execution and monitoring
 
 **Key Components**:
+- `run_automated_collection.py` - **NEW** Automated collection runner (two-phase process)
 - `monitor_collection.py` - Real-time progress monitoring
 - `run_collection.py` - Background collection execution
 
@@ -71,10 +72,12 @@ The AI Bubble Detection Project is a comprehensive financial analysis system des
 - **Risk Analysis**: Volatility, drawdown, market concentration
 
 ### 🔧 Technical Excellence
+- **Automated Collection**: Two-phase process (updates first, then historical data)
 - **Optimized Collection**: Single API call per data type per stock
 - **Rate Limiting**: Adaptive delays with exponential backoff
 - **Progress Tracking**: Automatic resume capability
 - **Parallel Processing**: Concurrent data collection
+- **No User Input**: Fully automated execution
 
 ## 📊 Database Architecture
 
@@ -174,11 +177,17 @@ financial_announcements                   - NZX announcements
 
 ### Starting Collection
 ```bash
-# Run comprehensive data collection
-python run_collection.py
+# AUTOMATED COLLECTION - Two-phase process (updates first, then historical)
+python run_automated_collection.py
+
+# OR run the collector directly
+python data_collection/stock_data_collector.py
 
 # Monitor real-time progress
 python monitor_collection.py
+
+# Background collection with monitoring
+python run_collection.py
 ```
 
 ### Running Analysis
